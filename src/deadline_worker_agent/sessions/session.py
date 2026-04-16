@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -42,7 +43,7 @@ from openjd.model import (
     RevisionExtensions,
     SpecificationRevision,
 )
-from openjd.model.v2023_09 import ExtensionName
+
 from openjd.sessions import (
     ActionState,
     ActionStatus,
@@ -72,7 +73,7 @@ from .log_config import ActionOutputCaptureFilter, ActionOutputMessageKind
 
 # TODO: Un-comment this when pipelined actions can be reported as NEVER_ATTEMPTED before the
 # currently canceling action is completed
-# from .errors import CancelationError
+from .errors import CancelationError
 
 OPENJD_ACTION_STATE_TO_DEADLINE_COMPLETED_STATUS: dict[
     ActionState,
@@ -208,7 +209,7 @@ class Session:
             # extensions once those are returned by BatchGetJobEntity
             revision_extensions=RevisionExtensions(
                 spec_rev=SpecificationRevision.v2023_09,
-                supported_extensions=[v.value for v in ExtensionName],
+                supported_extensions=["TASK_CHUNKING", "REDACTED_ENV_VARS", "EXPR", "FEATURE_BUNDLE_1"],
             ),
         )
 
@@ -587,7 +588,10 @@ class Session:
         """
         for canceled_action_id in action_ids:
             if self._current_action and self._current_action.definition.id == canceled_action_id:
-                self._start_canceling_current_action()
+                try:
+                    self._start_canceling_current_action()
+                except CancelationError as e:
+                    logger.warning(str(e))
             # TODO: Uncomment the code below once the service allows completing canceled actions
             # out-of-order (while the current action is still canceling). In the meantime,
             # the logic in Session._action_updated_impl() will mark all non-ENV_EXIT actions as
@@ -1035,9 +1039,18 @@ class Session:
                 if self._action_output_log_filter:
                     OPENJD_LOG.removeFilter(self._action_output_log_filter)
 
-                # Handle the action update
+                # Handle the action update for the original task run.
+                # Use the task's start_time (not the upload's started_at) and
+                # current time as end_time (covers both task + upload duration).
+                task_status = ActionStatus(
+                    state=action_status.state,
+                    progress=action_status.progress,
+                    status_message=action_status.status_message,
+                    fail_message=action_status.fail_message,
+                    exit_code=action_status.exit_code,
+                )
                 self._handle_action_update(
-                    is_unsuccessful, action_status, task_run_action, now, manifests_list
+                    is_unsuccessful, task_status, task_run_action, now, manifests_list
                 )
             else:
                 logger.debug(
@@ -1160,8 +1173,8 @@ class Session:
                 SessionActionStatus(
                     id=current_action.definition.id,
                     status=action_status,
-                    start_time=current_action.start_time,
-                    end_time=now if action_status.state != ActionState.RUNNING else None,
+                    start_time=action_status.started_at or current_action.start_time,
+                    end_time=action_status.ended_at or (now if action_status.state != ActionState.RUNNING else None),
                     update_time=now if action_status.state == ActionState.RUNNING else None,
                     completed_status=completed_status,
                     manifests=session_manifests,
@@ -1191,11 +1204,52 @@ class Session:
         os_env_vars: Optional[dict[str, str]] = None,
         log_task_banner: bool = True,
     ) -> None:
-        self._session._run_task_without_session_env(
-            step_script=step_script,
-            task_parameter_values=task_parameter_values,
-            os_env_vars=os_env_vars,
-            log_task_banner=log_task_banner,
+        # Write embedded files to the session's files directory and resolve
+        # Task.File.* references in args, then run as a subprocess without
+        # session env vars (avoids conda env interfering with sync scripts).
+        import tempfile as _tempfile
+
+        file_paths: dict[str, str] = {}
+        if step_script.embeddedFiles:
+            for ef in step_script.embeddedFiles:
+                if ef.data is not None:
+                    fd, path = _tempfile.mkstemp(
+                        dir=str(self._session.files_directory),
+                        prefix=f"{ef.name}_",
+                    )
+                    with os.fdopen(fd, "w") as f:
+                        f.write(str(ef.data))
+                    # Set permissions: owner rw, group r (matching openjd embedded file handling).
+                    # The group is set to the session user's group so the job-user can read it.
+                    import stat
+                    mode = stat.S_IRUSR | stat.S_IWUSR
+                    if self._os_user is not None and os.name == "posix":
+                        from shutil import chown
+                        chown(path, group=self._os_user.group)
+                        mode |= stat.S_IRGRP
+                    os.chmod(path, mode)
+                    file_paths[ef.name] = path
+
+        command = str(step_script.actions.onRun.command)
+        args = []
+        if step_script.actions.onRun.args:
+            for arg in step_script.actions.onRun.args:
+                s = str(arg)
+                for name, path in file_paths.items():
+                    s = s.replace("{{ Task.File." + name + " }}", path)
+                    s = s.replace("{{Task.File." + name + "}}", path)
+                args.append(s)
+
+        subprocess_env = {"PYTHONUNBUFFERED": "1"}
+        if os_env_vars:
+            subprocess_env.update(os_env_vars)
+
+        self._session.run_subprocess(
+            command=command,
+            args=args,
+            os_env_vars=subprocess_env,
+            use_session_env_vars=False,
+            log_banner_message="Running Task" if log_task_banner else None,
         )
 
     def stop(

@@ -206,15 +206,21 @@ def verify_output_dir_matches(
         WINDOWS_LINE_ENDING = b"\r\n"
         UNIX_LINE_ENDING = b"\n"
 
-        # relative or absolute file path, e.g.:
-        for file in output_files:
-            file_path = os.path.join(output_dir_path, file)
-            with open(file_path, "rb") as open_file:
-                content = open_file.read()
-            # Windows ➡ Unix
-            content = content.replace(WINDOWS_LINE_ENDING, UNIX_LINE_ENDING)
-            with open(file_path, "wb") as open_file:
-                open_file.write(content)
+        # Normalize line endings in both output and reference files so that
+        # comparisons succeed regardless of the OS running the tests or the
+        # Git autocrlf setting that may convert reference files on checkout.
+        for dir_path, file_list in [
+            (output_dir_path, output_files),
+            (reference_dir_path, reference_files),
+        ]:
+            for file in file_list:
+                file_path = os.path.join(dir_path, file)
+                with open(file_path, "rb") as open_file:
+                    content = open_file.read()
+                # Windows ➡ Unix
+                content = content.replace(WINDOWS_LINE_ENDING, UNIX_LINE_ENDING)
+                with open(file_path, "wb") as open_file:
+                    open_file.write(content)
 
     # len check confirms there are no extra files in output
     assert len(reference_files) == len(output_files)

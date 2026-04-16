@@ -1,31 +1,18 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
+import os
+import stat
+import sys
 import time
-from datetime import timedelta
 from logging import Logger
 from pathlib import Path
 from threading import Event, Thread
-from openjd.model import SymbolTable
 from typing import Optional
-import sys
 
-from deadline_worker_agent.utils import FileContext
+from openjd.sessions import PosixSessionUser
 
-
-from ..config.config import Configuration
-from openjd.sessions._runner_base import ScriptRunnerBase, TerminateCancelMethod
-from openjd.sessions._embedded_files import EmbeddedFilesScope
-from openjd.sessions._session_user import PosixSessionUser
-from openjd.model.v2023_09 import (
-    EmbeddedFileText as EmbeddedFileText_2023_09,
-)
-from openjd.model.v2023_09 import (
-    EmbeddedFileTypes as EmbeddedFileTypes_2023_09,
-)
-from openjd.model.v2023_09 import DataString as DataString_2023_09
 from ..aws_credentials.worker_boto3_session import WorkerBoto3Session
-from openjd.sessions._types import ActionState
-from openjd.sessions._logging import LoggerAdapter
+from ..config.config import Configuration
 from ..log_messages import WorkerHostConfigurationLogEvent, WorkerHostConfigurationStatus
 
 if sys.platform == "win32":
@@ -120,28 +107,8 @@ class _HostConfigTimer:
                 break
 
 
-class HostConfigurationScriptRunner(ScriptRunnerBase):
-    """Host Configuration Script Runner. Borrows from OpenJD Script Runner Base, similar to Session Actions"""
-
-    _host_configuration_script: str
-    """
-    The host configuiration script to run once the worker agent reaches STARTED state.
-    """
-
-    _host_configuration_timeout_seconds: int
-    """
-    The amount of time to allow the host configuration script to run before timing out.
-    """
-
-    _session_directory: Path
-    """The location in the filesystem where embedded files will be materialized.
-    """
-
-    _worker_boto3_session: WorkerBoto3Session
-    """Boto3 Fleet Session credentials."""
-
-    _configuration: Configuration
-    """The configuration for the worker agent."""
+class HostConfigurationScriptRunner:
+    """Runs a host configuration script using an openjd Session."""
 
     def __init__(
         self,
@@ -160,56 +127,36 @@ class HostConfigurationScriptRunner(ScriptRunnerBase):
         self._host_configuration_script = host_configuration_script
         self._host_configuration_timeout_seconds = host_configuration_timeout_seconds
         self._log = logger
-        self._logger_adapter = LoggerAdapter(logger=logger, extra={"worker_id": self._worker_id})
-        self._session_files_directory = session_directory
-        # Internal flag to turn off Windows RunAs during unit testing.
-        self._windows_run_as_admin = True
+        self._session_directory = session_directory
         self._runas_user = runas_user
-
-        # Async processing event.
-        self._action_event = Event()
-        self._action_state: Optional[ActionState] = None
-
-        # Super init is after setting members for computing env vars.
-        super().__init__(
-            logger=self._logger_adapter,
-            user=self._runas_user,
-            os_env_vars=self._host_configuration_env_vars(),
-            session_working_directory=session_directory,
-            startup_directory=session_directory,
-            callback=self._action_callback,
-        )
-        self._print_section_banner = False
+        self._windows_run_as_admin = True
 
     def _script_file_name(self) -> str:
         return "host_configuration.ps1" if sys.platform == "win32" else "host_configuration.sh"
 
     def _write_script_file(self) -> str:
-        """Returns the full path with file name after writing the script to disk."""
-        # Materialize the input script to the session directory.
+        """Write the host configuration script to disk and return its path."""
         script_file_name = self._script_file_name()
-        host_config_script = EmbeddedFileText_2023_09(
-            name="WorkerHostConfigurationScript",
-            type=EmbeddedFileTypes_2023_09.TEXT,
-            filename=script_file_name,
-            data=DataString_2023_09(self._host_configuration_script),
-            runnable=True,  # chmod +x
-        )
-        self._materialize_files(
-            scope=EmbeddedFilesScope.ENV,  # env files are runnable.
-            files=[host_config_script],
-            dest_directory=self._session_files_directory,
-            symtab=SymbolTable(),
-        )
+        script_path = self._session_directory / script_file_name
+        script_path.write_text(self._host_configuration_script)
+        if sys.platform != "win32":
+            script_path.chmod(script_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        return str(script_path)
 
-        script_file_path = str(self._session_files_directory / script_file_name)
-        return script_file_path
+    def _host_configuration_env_vars(self) -> dict[str, str]:
+        credentials = self._worker_boto3_session.get_credentials()
+        return {
+            "DEADLINE_FARM_ID": self._configuration.farm_id,
+            "DEADLINE_FLEET_ID": self._configuration.fleet_id,
+            "DEADLINE_WORKER_ID": self._worker_id,
+            "HOST_CONFIG_TIMEOUT_SECONDS": str(self._host_configuration_timeout_seconds),
+            "AWS_ACCESS_KEY_ID": credentials.access_key,
+            "AWS_SECRET_ACCESS_KEY": credentials.secret_key,
+            "AWS_SESSION_TOKEN": credentials.token,
+        }
 
     def run(self) -> int:
-        """
-        Run the host configuration script
-        returns The exit code 0 for success, number otherwise.
-        """
+        """Run the host configuration script. Returns exit code (0 = success)."""
         if self._host_configuration_script is None:
             self._log.info(
                 WorkerHostConfigurationLogEvent(
@@ -224,10 +171,6 @@ class HostConfigurationScriptRunner(ScriptRunnerBase):
 
         script_file_path = self._write_script_file()
 
-        self._log_section_banner(
-            logger=self._logger_adapter, section_title="Running Host Configuration Script"
-        )
-
         timer = _HostConfigTimer(
             timeout_seconds=self._host_configuration_timeout_seconds,
             logger=self._log,
@@ -237,95 +180,49 @@ class HostConfigurationScriptRunner(ScriptRunnerBase):
         )
         timer.start()
         try:
-            with FileContext(script_file_path) as _:
-                if sys.platform == "win32":
-                    exit_code = self._run_win32(script_file_path)
-                else:
-                    exit_code = self._run_posix()
+            if sys.platform == "win32":
+                return self._run_win32(script_file_path)
+            return self._run_posix(script_file_path)
         finally:
             timer.stop()
 
-        self._log_section_banner(
-            logger=self._logger_adapter,
-            section_title=f"Finished running Host Configuration Script, exit code: {exit_code}",
+    def _run_posix(self, script_file_path: str) -> int:
+        """Run via Session.run_subprocess on POSIX."""
+        from openjd._openjd_rs import Session, SessionState, ActionState
+
+        session = Session(
+            session_id=f"host-config-{self._worker_id}",
+            job_parameter_values={},
+            os_env_vars=self._host_configuration_env_vars(),
+            session_root_directory=str(self._session_directory),
+            retain_working_dir=True,
+            user=PosixSessionUser(user=self._runas_user.user if self._runas_user else "root"),
         )
-        return exit_code
 
-    def _run_posix(self) -> int:
-        """
-        Run the host configuration script on posix.
-        returns the exit code.
-        """
-        if sys.platform != "win32":
-            # Now that we have a script, run it.
-            command = ["./host_configuration.sh"]
+        try:
+            session.run_subprocess(
+                command=script_file_path,
+                timeout=float(self._host_configuration_timeout_seconds),
+            )
 
-            self._action_event.clear()
-            self._run(command)
+            # Poll for completion
+            while session.state == SessionState.RUNNING:
+                time.sleep(0.1)
 
-            # Wait for the completion event.
-            # Async callback prints out a message based on run state.
-            self._action_event.wait()
-
-            if self._action_state is ActionState.SUCCESS and self.exit_code == 0:
-                return self.exit_code
-            else:
-                return self.exit_code if self.exit_code is not None else -1
-
-        assert False, "This method should never be run in Win32"
+            status = session.action_status
+            if status and status.state == ActionState.SUCCESS and status.exit_code == 0:
+                return 0
+            return status.exit_code if status and status.exit_code is not None else -1
+        finally:
+            session.cleanup()
 
     def _run_win32(self, script_file_path: str) -> int:
-        """
-        Run the host configuration script on Windows.
-        returns the exit code.
-        """
+        """Run via Windows admin runner."""
         if sys.platform == "win32":
             win32_runner = _WindowsScriptRunner(
                 script_path=script_file_path,
-                working_directory=self._session_files_directory,
+                working_directory=self._session_directory,
                 logger=self._log,
             )
-            exit_code = win32_runner.run_powershell(self._host_configuration_env_vars())
-            return exit_code
-
-        assert False, "This method should never be run outside of Win32."
-
-    def _host_configuration_env_vars(self) -> Optional[dict[str, Optional[str]]]:
-        credentials = self._worker_boto3_session.get_credentials()
-        env = {
-            "DEADLINE_FARM_ID": self._configuration.farm_id,
-            "DEADLINE_FLEET_ID": self._configuration.fleet_id,
-            "DEADLINE_WORKER_ID": self._worker_id,
-            "HOST_CONFIG_TIMEOUT_SECONDS": str(self._host_configuration_timeout_seconds),
-            "AWS_ACCESS_KEY_ID": credentials.access_key,
-            "AWS_SECRET_ACCESS_KEY": credentials.secret_key,
-            "AWS_SESSION_TOKEN": credentials.token,
-        }
-        return env
-
-    def _action_callback(self, state: ActionState) -> None:
-        """This method is inherited from the base class and only used for posix"""
-        self._action_state = state
-
-        if state in ActionState.RUNNING:
-            return
-
-        # Unblock to exit.
-        self._action_event.set()
-
-    def cancel(
-        self, *, time_limit: Optional[timedelta] = None, mark_action_failed: bool = False
-    ) -> None:
-        """This method is inherited from the base class and only used for posix."""
-        # Action cancellation. In this case, we terminate the child.
-        self._cancel(TerminateCancelMethod(), time_limit, mark_action_failed)
-
-    def _log_section_banner(self, logger: LoggerAdapter, section_title: str) -> None:
-        logger.info("")
-        logger.info(
-            "============================================================================================"
-        )
-        logger.info(f"--------- {section_title} ---------")
-        logger.info(
-            "============================================================================================"
-        )
+            return win32_runner.run_powershell(self._host_configuration_env_vars())
+        return -1

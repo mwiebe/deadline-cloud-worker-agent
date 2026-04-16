@@ -11,6 +11,7 @@ from openjd.model import (
     ParameterValue,
     ParameterValueType,
     SpecificationRevision,
+    TaskParameterType,
     TemplateSpecificationVersion,
     UnsupportedSchema,
 )
@@ -59,7 +60,7 @@ def parameters_from_api_response(
             param_value = ParameterValue(type=ParameterValueType.PATH, value=value["path"])
         elif "chunkInt" in value:
             value = cast(ChunkIntParameter, value)
-            param_value = ParameterValue(type=ParameterValueType.CHUNK_INT, value=value["chunkInt"])
+            param_value = ParameterValue(type=TaskParameterType.CHUNK_INT, value=value["chunkInt"])
         else:
             raise ValueError(f"Parameter {name} -- unknown form in API response: {str(value)}")
         result[name] = param_value

@@ -15,7 +15,7 @@ from typing import cast, Any, Callable, Dict, List, TypeVar
 from deadline.job_attachments.download import download_files_from_manifests
 from deadline.job_attachments.asset_manifests.decode import decode_manifest
 from deadline.job_attachments.asset_manifests import BaseAssetManifest
-from deadline.job_attachments.models import JobAttachmentS3Settings
+from deadline.job_attachments.models import FileConflictResolution, JobAttachmentS3Settings
 from deadline.job_attachments.progress_tracker import (
     DownloadSummaryStatistics,
     ProgressReportMetadata,
@@ -202,6 +202,7 @@ def perform_download(
         cas_prefix=s3_settings.full_cas_prefix(),
         session=boto3.session.Session(),
         on_downloading_files=progress_handler,
+        conflict_resolution=FileConflictResolution.OVERWRITE,
     )
     record_attachment_download_telemetry_event(
         queue_id=_queue_id,

@@ -20,3 +20,7 @@ __pycache__/
 tmp.*
 .deployed_resources.sh
 .e2e_*.sh
+
+# Downloaded output copies that collide with source bundle files during e2e tests
+test/e2e/job_attachment_bundle/**/*(*).txt
+test/e2e/job_attachment_bundle/**/*(*).xxh128

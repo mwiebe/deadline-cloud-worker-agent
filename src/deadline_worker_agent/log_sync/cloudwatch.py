@@ -641,7 +641,15 @@ class CloudWatchHandler(Handler):
             # the time that we report to CloudWatch is rounded in the same way that the service will round
             # the startedAt/endedAt time that it receives. Our service truncates, rather than rounds, times
             # to microseconds so we do the same here.
-            timestamp = int(record.created * 1000)
+            #
+            # When the log record comes from the Rust session, use the precise Rust-side
+            # timestamp (openjd_timestamp_usec) instead of the Python record.created which
+            # may be delayed due to GIL acquisition in the pyo3-log bridge.
+            rust_ts_usec = getattr(record, "openjd_timestamp_usec", None)
+            if rust_ts_usec is not None:
+                timestamp = int(rust_ts_usec) // 1000  # usec -> ms
+            else:
+                timestamp = int(record.created * 1000)
             self._log_event_queue.append(
                 FormattedLogEntry(
                     timestamp=timestamp,
