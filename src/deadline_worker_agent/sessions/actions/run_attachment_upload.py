@@ -12,8 +12,8 @@ from pathlib import Path
 from deadline.job_attachments.models import (
     JobAttachmentS3Settings,
 )
-from openjd.sessions import LOG as OPENJD_LOG, LogContent
-from openjd.model.v2023_09 import (
+from openjd.sessions.v1 import LOG as OPENJD_LOG, LogContent
+from openjd.model.v1.v2023_09 import (
     EmbeddedFileTypes as EmbeddedFileTypes_2023_09,
     EmbeddedFileText as EmbeddedFileText_2023_09,
     Action as Action_2023_09,
@@ -23,7 +23,7 @@ from openjd.model.v2023_09 import (
     CommandString,
     DataString,
 )
-from openjd.model import ParameterValue
+from openjd.model.v1 import ParameterValue
 
 from ...log_messages import SessionActionLogKind
 from ..attachment_models import WorkerManifestProperties

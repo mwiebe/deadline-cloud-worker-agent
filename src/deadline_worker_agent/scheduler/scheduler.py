@@ -22,8 +22,8 @@ import stat
 import sys
 import getpass
 
-from openjd.sessions import ActionState, ActionStatus, SessionUser
-from openjd.sessions import LOG as OPENJD_SESSION_LOG
+from openjd.sessions.v1 import ActionState, ActionStatus, SessionUser
+from openjd.sessions.v1 import LOG as OPENJD_SESSION_LOG
 from deadline.job_attachments.asset_sync import AssetSync
 
 from ..aws.deadline import update_worker

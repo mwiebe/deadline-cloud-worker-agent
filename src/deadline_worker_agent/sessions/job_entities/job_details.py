@@ -6,7 +6,7 @@ from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, cast
 import os
 
-from openjd.model import (
+from openjd.model.v1 import (
     JobParameterValues,
     ParameterValue,
     ParameterValueType,
@@ -15,12 +15,12 @@ from openjd.model import (
     TemplateSpecificationVersion,
     UnsupportedSchema,
 )
-from openjd.sessions import (
+from openjd.sessions.v1 import (
     PathFormat,
     PosixSessionUser,
     WindowsSessionUser,
 )
-from openjd.sessions import PathMappingRule as OPENJDPathMappingRule
+from openjd.sessions.v1 import PathMappingRule as OPENJDPathMappingRule
 
 from ...api_models import (
     FloatParameter,

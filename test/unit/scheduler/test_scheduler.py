@@ -10,7 +10,7 @@ import logging
 
 from deadline_worker_agent.api_models import ManifestInfo
 
-from openjd.sessions import (
+from openjd.sessions.v1 import (
     ActionState,
     ActionStatus,
     SessionUser,
@@ -51,7 +51,7 @@ from deadline_worker_agent.aws.deadline import (
     DeadlineRequestInterrupted,
 )
 from deadline_worker_agent.file_system_operations import FileSystemPermissionEnum
-from openjd.model import SpecificationRevision
+from openjd.model.v1 import SpecificationRevision
 
 
 @pytest.fixture(autouse=True)

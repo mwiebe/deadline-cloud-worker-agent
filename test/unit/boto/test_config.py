@@ -4,7 +4,7 @@ from botocore.config import Config
 
 from deadline_worker_agent._version import __version__
 from deadline.job_attachments import version as deadline_job_attachments_version
-from openjd.sessions import version as openjd_sessions_version
+from openjd.sessions.v1 import version as openjd_sessions_version
 import deadline_worker_agent.boto.config as boto_config_mod
 
 

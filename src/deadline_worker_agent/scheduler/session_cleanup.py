@@ -7,7 +7,7 @@ import sys
 import getpass
 from threading import Lock
 
-from openjd.sessions import SessionUser, PosixSessionUser, WindowsSessionUser
+from openjd.sessions.v1 import SessionUser, PosixSessionUser, WindowsSessionUser
 from .log import LOGGER
 from ..sessions import Session
 

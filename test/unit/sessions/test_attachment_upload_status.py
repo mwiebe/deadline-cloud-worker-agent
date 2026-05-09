@@ -5,7 +5,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
-from openjd.sessions import ActionState, ActionStatus
+from openjd.sessions.v1 import ActionState, ActionStatus
 
 from deadline_worker_agent.api_models import ManifestInfo
 from deadline_worker_agent.scheduler.session_action_status import SessionActionStatus

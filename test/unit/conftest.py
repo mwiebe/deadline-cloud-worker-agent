@@ -18,17 +18,17 @@ from deadline.job_attachments.models import (
     ManifestProperties,
     PathFormat,
 )
-from openjd.model import (
+from openjd.model.v1 import (
     JobParameterValues,
     ParameterValue,
     SpecificationRevision,
     TemplateSpecificationVersion,
 )
-from openjd.model.v2023_09 import (
+from openjd.model.v1.v2023_09 import (
     CommandString,
     ArgString,
 )
-from openjd.sessions import (
+from openjd.sessions.v1 import (
     PathMappingRule,
     SessionUser,
     PosixSessionUser,

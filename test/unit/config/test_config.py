@@ -12,7 +12,7 @@ import pytest
 import os
 import sys
 
-from openjd.sessions import SessionUser, PosixSessionUser, WindowsSessionUser
+from openjd.sessions.v1 import SessionUser, PosixSessionUser, WindowsSessionUser
 
 from deadline_worker_agent.config import config as config_mod
 from deadline_worker_agent.config.cli_args import ParsedCommandLineArguments

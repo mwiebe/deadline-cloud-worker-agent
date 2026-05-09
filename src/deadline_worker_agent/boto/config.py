@@ -4,7 +4,7 @@ from botocore.config import Config
 
 from .._version import __version__ as worker_agent_version
 from deadline.job_attachments import version as deadline_job_attachments_version
-from openjd.sessions import version as openjd_sessions_version
+from openjd.sessions.v1 import version as openjd_sessions_version
 
 
 def construct_user_agent() -> str:

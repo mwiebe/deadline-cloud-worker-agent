@@ -30,7 +30,7 @@ else:
     PyHKEY = Any
     PyHANDLE = Any
 
-from openjd.sessions import WindowsSessionUser, BadCredentialsException
+from openjd.sessions.v1 import WindowsSessionUser, BadCredentialsException
 
 logger = getLogger(__name__)
 

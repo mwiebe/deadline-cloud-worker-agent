@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Optional
 
-from openjd.sessions import PosixSessionUser
+from openjd.sessions.v1 import PosixSessionUser
 
 from ..aws_credentials.worker_boto3_session import WorkerBoto3Session
 from ..config.config import Configuration

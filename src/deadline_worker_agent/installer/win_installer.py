@@ -25,7 +25,7 @@ import win32security
 import win32service
 import win32serviceutil
 import winerror
-from openjd.sessions import BadCredentialsException, WindowsSessionUser
+from openjd.sessions.v1 import BadCredentialsException, WindowsSessionUser
 from win32comext.shell import shell
 
 from ..config.config_file import (

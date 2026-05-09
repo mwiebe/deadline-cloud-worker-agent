@@ -12,7 +12,7 @@ from deadline_worker_agent.aws_credentials.aws_configs import (
     _AWSConfigBase,
     _setup_file,
 )
-from openjd.sessions import PosixSessionUser, WindowsSessionUser, SessionUser
+from openjd.sessions.v1 import PosixSessionUser, WindowsSessionUser, SessionUser
 from deadline_worker_agent.file_system_operations import FileSystemPermissionEnum
 from deadline_worker_agent.log_messages import FilesystemLogEvent, FilesystemLogEventOp
 import os

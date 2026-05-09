@@ -11,10 +11,10 @@ from pathlib import Path
 from getpass import getuser
 
 from ._version import __version__
-from openjd.model import version as openjd_model_version
-from openjd.sessions import version as openjd_sessions_version
-from openjd.sessions import LogContent
-from openjd.sessions import LOG as openjd_logger
+from openjd.model.v1 import version as openjd_model_version
+from openjd.sessions.v1 import version as openjd_sessions_version
+from openjd.sessions.v1 import LogContent
+from openjd.sessions.v1 import LOG as openjd_logger
 from deadline.job_attachments import version as deadline_job_attach_version
 
 if TYPE_CHECKING:

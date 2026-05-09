@@ -34,14 +34,14 @@ from deadline_worker_agent.aws.deadline import (
     record_vfs_mount_telemetry_event,
 )
 
-from openjd.sessions import (
+from openjd.sessions.v1 import (
     LOG as OPENJD_LOG,
     LogContent,
     PathMappingRule as OpenjdPathMapping,
     PosixSessionUser,
     WindowsSessionUser,
 )
-from openjd.model.v2023_09 import (
+from openjd.model.v1.v2023_09 import (
     EmbeddedFileTypes as EmbeddedFileTypes_2023_09,
     EmbeddedFileText as EmbeddedFileText_2023_09,
     Action as Action_2023_09,
@@ -51,7 +51,7 @@ from openjd.model.v2023_09 import (
     ArgString,
     DataString,
 )
-from openjd.model import ParameterValue
+from openjd.model.v1 import ParameterValue
 
 from ...log_messages import SessionActionLogKind
 from .openjd_action import OpenjdAction

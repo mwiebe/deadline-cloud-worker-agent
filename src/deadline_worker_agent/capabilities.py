@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any, Literal, TYPE_CHECKING
-from openjd.model import validate_attribute_capability_name, validate_amount_capability_name
-from openjd.model import STANDARD_ATTRIBUTE_CAPABILITIES, STANDARD_AMOUNT_CAPABILITIES
+from openjd.model.v1 import validate_attribute_capability_name, validate_amount_capability_name
+from openjd.model.v1 import STANDARD_ATTRIBUTE_CAPABILITIES, STANDARD_AMOUNT_CAPABILITIES
 import logging
 import platform
 import shutil

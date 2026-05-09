@@ -31,7 +31,7 @@ from deadline_worker_agent.log_messages import (
     LogRecordStringTranslationFilter,
 )
 
-from openjd.sessions import (
+from openjd.sessions.v1 import (
     LOG,
     LogContent,
 )
