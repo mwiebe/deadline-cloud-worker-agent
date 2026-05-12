@@ -133,33 +133,39 @@ if [ ${#ERRORS[@]} -gt 0 ]; then
 fi
 
 # --- Build maturin wheel(s) ---
+#
+# openjd-model uses an in-tree PEP 517 build backend (`_build_backend.py`)
+# that injects a VCS-derived version into the wheel metadata, so plain
+# `pip wheel` produces the same `0.9.1.post<N>+g<hash>` wheel that
+# `python scripts/maturin_build.py build` does. Cross-compile targets are
+# forwarded to maturin via the MATURIN_PEP517_ARGS env var.
 
 build_maturin_linux() {
     echo "Building openjd-model wheel (maturin) for Linux..."
-    (cd "$WORKSPACE_DIR/openjd-model-for-python" && maturin build --release --manifest-path rust/Cargo.toml)
-    MODEL_WHL_LINUX=$(ls -t "$WORKSPACE_DIR/openjd-model-for-python/target/wheels"/openjd_model-*linux*.whl 2>/dev/null | head -1)
+    (cd "$WORKSPACE_DIR/openjd-model-for-python" && pip wheel --no-deps -w dist .)
+    MODEL_WHL_LINUX=$(ls -t "$WORKSPACE_DIR/openjd-model-for-python/dist"/openjd_model-*linux*.whl 2>/dev/null | head -1)
     if [ -z "${MODEL_WHL_LINUX:-}" ]; then
         # Fallback: grab the most recent wheel (native build on Linux won't have "linux" in name until auditwheel)
-        MODEL_WHL_LINUX=$(ls -t "$WORKSPACE_DIR/openjd-model-for-python/target/wheels"/openjd_model-*.whl | head -1)
+        MODEL_WHL_LINUX=$(ls -t "$WORKSPACE_DIR/openjd-model-for-python/dist"/openjd_model-*.whl | head -1)
     fi
 }
 
 build_maturin_windows() {
-    local target_flag=""
+    local pep517_env=""
     # If not on Windows, cross-compile
     if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* && "$(uname -s)" != CYGWIN* ]]; then
-        target_flag="--target x86_64-pc-windows-msvc"
         if ! rustup target list --installed | grep -q "x86_64-pc-windows-msvc"; then
             echo "ERROR: Rust target x86_64-pc-windows-msvc not installed."
             echo "  Run: rustup target add x86_64-pc-windows-msvc"
             exit 1
         fi
+        pep517_env='MATURIN_PEP517_ARGS=--target x86_64-pc-windows-msvc'
     fi
     echo "Building openjd-model wheel (maturin) for Windows..."
-    (cd "$WORKSPACE_DIR/openjd-model-for-python" && maturin build --release --manifest-path rust/Cargo.toml $target_flag)
-    MODEL_WHL_WINDOWS=$(ls -t "$WORKSPACE_DIR/openjd-model-for-python/target/wheels"/openjd_model-*win*.whl 2>/dev/null | head -1)
+    (cd "$WORKSPACE_DIR/openjd-model-for-python" && env $pep517_env pip wheel --no-deps -w dist .)
+    MODEL_WHL_WINDOWS=$(ls -t "$WORKSPACE_DIR/openjd-model-for-python/dist"/openjd_model-*win*.whl 2>/dev/null | head -1)
     if [ -z "${MODEL_WHL_WINDOWS:-}" ]; then
-        MODEL_WHL_WINDOWS=$(ls -t "$WORKSPACE_DIR/openjd-model-for-python/target/wheels"/openjd_model-*.whl | head -1)
+        MODEL_WHL_WINDOWS=$(ls -t "$WORKSPACE_DIR/openjd-model-for-python/dist"/openjd_model-*.whl | head -1)
     fi
 }
 
