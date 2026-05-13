@@ -7,74 +7,170 @@ $SESSIONS_WHL = "__SESSIONS_WHL__"
 $AGENT_WHL = "__AGENT_WHL__"
 $DEADLINE_WHL = "__DEADLINE_WHL__"
 
-Write-Host "Running Host Configuration script to install Rust-backed openjd libraries."
+# Parallel-install strategy (Windows SMF):
+#
+# We can't replace the agent's own modules in place — pythonservice.exe
+# has the old `openjd._openjd_rs.pyd` mapped, and the running Python
+# import cache will keep returning the old `openjd.model` even after
+# pip --force-reinstall. We also can't reboot the EC2 instance; on SMF
+# spot, an in-guest reboot ends with Deadline tearing down the instance.
+#
+# Instead:
+#   1. Robocopy the AMI's Python311 to a sibling dir.
+#   2. pip-install the four bindings-rs wheels into the new tree's
+#      site-packages — using the new tree's own python.exe.
+#   3. Hand off to a detached child PowerShell that, after this
+#      script exits, stops the DeadlineWorker service, rewrites its
+#      ImagePath registry value to the new pythonservice.exe, and
+#      starts the service back up. The child has to be detached so
+#      the SCM can stop the running service without killing the
+#      script that's stopping it.
+#   4. exit 0 so the agent persists host_configuration_succeeded=True
+#      before being killed by Stop-Service.
+#
+# pythonservice.exe is not bound at compile time to a specific Python
+# install — it loads pythonXY.dll via DLL adjacency, so a parallel
+# tree resolves to its own site-packages. ImagePath is the only registry
+# value that needs to change; PythonClass stays the same.
 
-$markerFile = "C:\ProgramData\Amazon\Deadline\rebooted"
+Write-Host "Running Host Configuration script (parallel install of bindings-rs build)."
+
+$markerFile = "C:\ProgramData\Amazon\Deadline\bindings-rs-installed"
 if (Test-Path $markerFile) {
-    Write-Host "Host already rebooted, ready to start."
+    Write-Host "Marker present — bindings-rs install already applied. Exiting."
     exit 0
 }
-Write-Host "Host has not been rebooted."
 
-# Resolve the python.exe used by the DeadlineWorker service so the wheel
-# install lands in the same interpreter the service imports from.
-#
-# The Windows SMF AMI installs the agent into the system Python at
-# C:\Program Files\Python311 (no per-worker venv) and registers the
-# Windows service via pywin32, so the service's ImagePath is the
-# pywin32 host binary `pythonservice.exe` next to that python.exe.
-# Custom Windows agent installs may instead use a venv layout
-# (`<venv>\Scripts\python.exe` or `<venv>\bin\python.exe`).
+# --- Resolve the source Python (the one the service currently runs) ---
 function Get-DeadlineWorkerPython {
-    # Primary: SMF AMI system-Python install.
     $smfPython = 'C:\Program Files\Python311\python.exe'
     if (Test-Path $smfPython) { return $smfPython }
-
-    # Fallback: derive from the service's ImagePath. ImagePath looks like:
-    #   "<dir>\pythonservice.exe"  (SMF / pywin32 install)
-    #   "<venv>\Scripts\DeadlineWorkerService.exe" -classname=...  (custom venv)
     $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\DeadlineWorker'
     $imagePath = (Get-ItemProperty -Path $svcKey -Name ImagePath -ErrorAction Stop).ImagePath
     $exePath = ($imagePath -replace '^"([^"]+)".*', '$1')
     $exeDir = Split-Path $exePath -Parent
-
-    # 1. python.exe in the same directory (SMF / pywin32 layout)
     $sibling = Join-Path $exeDir 'python.exe'
     if (Test-Path $sibling) { return $sibling }
-
-    # 2. python.exe under the venv root (custom-venv layout)
-    $venvRoot = Split-Path $exeDir -Parent
-    foreach ($sub in @('Scripts\python.exe', 'bin\python.exe')) {
-        $candidate = Join-Path $venvRoot $sub
-        if (Test-Path $candidate) { return $candidate }
-    }
-
     throw "Could not locate DeadlineWorker python.exe (ImagePath='$imagePath')"
 }
 
-$py = Get-DeadlineWorkerPython
-Write-Host "Using Python: $py"
+$srcPy = Get-DeadlineWorkerPython
+$srcRoot = Split-Path $srcPy -Parent
+$dstRoot = Join-Path (Split-Path $srcRoot -Parent) ((Split-Path $srcRoot -Leaf) + '-bindings-rs')
+$dstPy = Join-Path $dstRoot 'python.exe'
+$dstSvcExe = Join-Path $dstRoot 'pythonservice.exe'
 
+Write-Host "Source Python : $srcPy"
+Write-Host "Source root   : $srcRoot"
+Write-Host "Target root   : $dstRoot"
+
+# --- Robocopy the source Python tree to a sibling directory ---
+# /MIR mirrors; /XJ skips junctions; /R:1 /W:1 keeps retries cheap;
+# /NP /NFL /NDL trims output to file-counts only.
+if (Test-Path $dstRoot) {
+    Write-Host "Removing previous parallel install at $dstRoot"
+    Remove-Item -Recurse -Force $dstRoot
+}
+Write-Host "Copying $srcRoot -> $dstRoot ..."
+$prev = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    & robocopy $srcRoot $dstRoot /MIR /XJ /R:1 /W:1 /NP /NFL /NDL | Out-Null
+    # Robocopy uses non-zero exit codes for SUCCESS too — anything <=7 is OK.
+    if ($LASTEXITCODE -ge 8) {
+        throw "robocopy failed with exit code $LASTEXITCODE"
+    }
+} finally {
+    $ErrorActionPreference = $prev
+}
+if (-not (Test-Path $dstPy))     { throw "Missing python.exe at $dstPy after robocopy" }
+if (-not (Test-Path $dstSvcExe)) { throw "Missing pythonservice.exe at $dstSvcExe after robocopy" }
+Write-Host "Robocopy complete."
+
+# --- Download wheels from S3 ---
 $tempDir = "C:\temp\deadline-wheels"
 if (-not (Test-Path $tempDir)) {
     New-Item -Path $tempDir -ItemType Directory | Out-Null
 }
-
 foreach ($whl in @($MODEL_WHL, $SESSIONS_WHL, $AGENT_WHL, $DEADLINE_WHL)) {
     Write-Host "Downloading $whl from s3://$S3_BUCKET/$S3_PREFIX/$whl"
     aws s3 cp "s3://$S3_BUCKET/$S3_PREFIX/$whl" "$tempDir\"
 }
 
-& $py -m pip install "$tempDir\$MODEL_WHL" --force-reinstall --no-deps
-& $py -m pip install "$tempDir\$SESSIONS_WHL" --force-reinstall --no-deps
-& $py -m pip install "$tempDir\$AGENT_WHL" --force-reinstall --no-deps
-& $py -m pip install "$tempDir\$DEADLINE_WHL" --force-reinstall --no-deps
+# --- Install wheels into the parallel install ---
+function Invoke-Pip {
+    param([Parameter(Mandatory)][string]$Wheel)
+    Write-Host "Installing $Wheel into $dstPy"
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $dstPy -m pip install $Wheel --force-reinstall --no-deps 2>&1 | ForEach-Object { Write-Host $_ }
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "pip install $Wheel failed with exit code $LASTEXITCODE"
+    }
+}
 
-Write-Host "Installed packages:"
-& $py -m pip list | Select-String -Pattern "openjd|deadline"
+Invoke-Pip "$tempDir\$MODEL_WHL"
+Invoke-Pip "$tempDir\$SESSIONS_WHL"
+Invoke-Pip "$tempDir\$AGENT_WHL"
+Invoke-Pip "$tempDir\$DEADLINE_WHL"
 
+Write-Host "Installed packages in parallel install:"
+$ErrorActionPreference = 'Continue'
+(& $dstPy -m pip list 2>&1) | Select-String -Pattern "openjd|deadline"
+$ErrorActionPreference = 'Stop'
+
+# Quick smoke test: ensure the installed openjd.model imports cleanly
+# in the new interpreter. If this fails, don't repoint the service.
+Write-Host "Smoke-testing imports in the new interpreter..."
+$ErrorActionPreference = 'Continue'
+$smoke = & $dstPy -c "import openjd.model; from openjd.model._version import __version__; print('OK', __version__)" 2>&1
+$smokeRc = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+Write-Host "Smoke test: $smoke"
+if ($smokeRc -ne 0) {
+    throw "Smoke test failed with exit code $smokeRc — refusing to repoint the service."
+}
+
+# --- Mark success BEFORE the service swap ---
+# The detached child below will stop and restart the service; that
+# kills *this* script process (we run as a child of the live service).
+# Drop the marker now so a re-run after any future host-config trigger
+# is a no-op.
 New-Item $markerFile -ItemType File -Force | Out-Null
-Write-Host "Marker file created, rebooting worker host."
-Restart-Computer -Force
-Start-Sleep 60
-exit 1
+
+# --- Hand off to a detached child to swap and restart the service ---
+# Cannot stop our own service from inside it. Spawn a hidden, detached
+# powershell that:
+#  1. waits a moment for our parent (host config runner) to record exit 0,
+#  2. stops DeadlineWorker (which kills this script's parent service),
+#  3. rewrites ImagePath in the registry,
+#  4. starts the service (which loads the new pythonservice.exe).
+$dstSvcExeQuoted = '"' + $dstSvcExe + '"'
+
+$childScript = @"
+`$ErrorActionPreference = 'Stop'
+Start-Sleep -Seconds 8
+Stop-Service -Name DeadlineWorker -Force
+`$svc = Get-Service DeadlineWorker
+while (`$svc.Status -ne 'Stopped') {
+    Start-Sleep -Seconds 1
+    `$svc.Refresh()
+}
+Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\DeadlineWorker' ``
+    -Name ImagePath -Value '$dstSvcExeQuoted'
+Start-Service -Name DeadlineWorker
+"@
+$childScriptPath = Join-Path $env:TEMP 'deadline-bindings-rs-swap.ps1'
+Set-Content -Path $childScriptPath -Value $childScript -Encoding UTF8
+
+Write-Host "Spawning detached service-swap child: $childScriptPath"
+Start-Process -FilePath 'powershell.exe' `
+    -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $childScriptPath) `
+    -WindowStyle Hidden
+
+Write-Host "Host configuration complete. Detached child will swap the service in ~8 seconds."
+exit 0
