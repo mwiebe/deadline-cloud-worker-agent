@@ -137,7 +137,12 @@ wheels, reboot, and start processing jobs with the Rust-backed libraries.
 
 ## What to verify
 
-- Worker logs show `openjd.model: 0.0.0+rust` in the AgentInfo section
+- Worker logs show `openjd.model: 0.9.x.post<N>+g<hash>` (and a similar
+  `0.10.x.post<N>+g<hash>` for `openjd.sessions`) in the AgentInfo
+  section. The `.post<N>+g<hash>` local segment confirms the
+  `bindings-rs` dev build is loaded; a plain released version like
+  `0.9.0` means the wheel install hit the wrong Python or didn't
+  replace the AMI's PyPI version.
 - Host configuration script logs show successful wheel installation
 - Jobs complete successfully with correct session logs
 - CloudWatch session logs have properly ordered timestamps
