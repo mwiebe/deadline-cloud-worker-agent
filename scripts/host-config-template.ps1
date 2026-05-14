@@ -299,8 +299,16 @@ Start-Process -FilePath 'powershell.exe' `
 # session loop, has not picked up any jobs, and will not have any
 # in-flight session state when it dies. The kill ends this sleep
 # before it completes; we should never reach the lines below.
-Write-Host "Sleeping 60s; detached child will kill the service before this returns."
-Start-Sleep -Seconds 60
+#
+# Emit a heartbeat every second so the CloudWatch log shows exactly
+# when the kill fires (last heartbeat second-mark) -- the gap between
+# the last heartbeat and the post-swap "host config short-circuit by
+# marker" lets us measure swap latency and confirm the kill worked.
+Write-Host "Sleeping up to 60s; detached child will kill the service before this returns."
+for ($i = 1; $i -le 60; $i++) {
+    Write-Host ("heartbeat {0:D2}/60 (waiting for kill)" -f $i)
+    Start-Sleep -Seconds 1
+}
 
 # If we ever DO reach here, something has gone wrong with the kill.
 # Exit non-zero so Deadline knows the host config failed and the
