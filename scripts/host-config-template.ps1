@@ -197,41 +197,48 @@ if ($smokeRc -ne 0) {
 New-Item $markerFile -ItemType File -Force | Out-Null
 
 # --- Hand off to a detached child to swap and restart the service ---
-# Cannot stop our own service from inside it. Spawn a hidden, detached
-# powershell that:
-#  1. waits a moment for our parent (host config runner) to record exit 0,
-#  2. force-kills pythonservice.exe -- NOT Stop-Service. The agent's
-#     normal shutdown path calls UpdateWorker(STOPPED) before exiting,
-#     and Deadline responds by terminating this spot EC2 instance.
-#     Force-killing the process gives the SCM a "service crashed"
-#     status without giving the agent a chance to phone home.
-#  3. waits for SCM to mark the service Stopped,
-#  4. rewrites ImagePath in the registry,
-#  5. starts the service (which loads the new pythonservice.exe).
+#
+# We can't restart our own service from inside it. Spawn a hidden,
+# detached powershell that:
+#   1. waits ~3s so we (the running host-config script) are still
+#      sitting in our heartbeat sleep loop -- the agent has not yet
+#      seen us return 0 and has not entered the session-poll loop;
+#   2. rewrites ImagePath in the registry to point at the parallel
+#      install's pythonservice.exe -- SCM only reads ImagePath on the
+#      next StartService call, so this doesn't touch the running
+#      process;
+#   3. calls Restart-Service -Force, which delivers SERVICE_CONTROL_STOP
+#      via SCM. That fires the agent's SvcStop callback, which sets
+#      _stop_event and lets the agent exit through its normal
+#      shutdown path -- including UpdateWorker(STOPPED). This matches
+#      the Linux flow exactly: `systemctl restart` sends SIGTERM,
+#      the agent's SIGTERM handler calls UpdateWorker(STOPPED), the
+#      new agent comes up <1s later, re-registers under the same
+#      worker_id from Cache\worker.json, and resumes heartbeats
+#      before Deadline's autoscaling reconciler reacts.
+#   4. SCM then starts a fresh pythonservice.exe using the new
+#      ImagePath. The new agent re-runs host-config (this script),
+#      sees the marker file we dropped before spawning this child,
+#      short-circuits with exit 0. Agent enters job loop with the
+#      bindings-rs build.
+#
+# Why NOT Stop-Process -Force on pythonservice.exe: that is SIGKILL,
+# not SIGTERM. SvcStop is an SCM callback (not an OS signal handler),
+# so it isn't fired on a force-kill. Without SvcStop, the agent
+# never calls UpdateWorker(STOPPED), and the server-side state
+# machine is left wedged in STARTED. The new agent can't transition
+# STARTED -> IDLE because Deadline still thinks the prior agent is
+# alive. We empirically saw workers stuck in STARTED for 5+ minutes
+# under that path. Restart-Service avoids it.
 $dstSvcExeQuoted = '"' + $dstSvcExe + '"'
 
 $childScript = @"
 `$ErrorActionPreference = 'Continue'
 `$debugLog = '$debugLog'
 function _CLog { param(`$m) "`$(Get-Date -Format o)  [child]  `$m" | Out-File -FilePath `$debugLog -Encoding utf8 -Append }
-_CLog 'child started; sleeping 3s'
-# We deliberately kill the agent WHILE the host-config script is still
-# in its own Start-Sleep loop, BEFORE the script can `exit 0` and let
-# the agent enter its session-poll loop. That guarantees no in-flight
-# session, so the post-swap agent inherits a clean state.
-#
-# The agent never sees host_configuration_succeeded=True because we
-# kill mid-script. After the new service starts up, host config runs
-# again - and is short-circuited by the marker file we wrote before
-# spawning this child.
+_CLog 'child started; sleeping 3s before swap'
 Start-Sleep -Seconds 3
 
-# Rewrite ImagePath BEFORE killing the service. The SCM only reads
-# ImagePath on StartService, so this doesn't affect the running
-# process. If the SCM's failure recovery policy is set to auto-restart
-# (it is on the SMF AMI), the recovery start will use the new
-# ImagePath -- that's the desired behaviour. If recovery doesn't
-# restart, our explicit Start-Service later does it instead.
 try {
     Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\DeadlineWorker' ``
         -Name ImagePath -Value '$dstSvcExeQuoted'
@@ -240,49 +247,25 @@ try {
     _CLog "Set-ItemProperty failed: `$_"
 }
 
-# Force-kill the running pythonservice.exe. Stop-Service triggers the
-# agent's clean-shutdown path which calls UpdateWorker(STOPPED), and
-# Deadline responds by terminating this spot EC2 instance. Killing
-# the process directly skips that handshake -- the SCM sees the
-# service crash and either auto-restarts it (per recovery policy) or
-# leaves it stopped for our Start-Service to handle.
+# Restart-Service -Force is the canonical Windows equivalent of
+# `systemctl restart`. SCM sends SERVICE_CONTROL_STOP -> the agent's
+# SvcStop fires -> agent calls UpdateWorker(STOPPED) and exits cleanly
+# -> SCM then calls StartService with the new ImagePath. -Force
+# bypasses dependent-service prompts; we have no dependents here.
 try {
-    `$svcPid = (Get-CimInstance Win32_Service -Filter "Name='DeadlineWorker'").ProcessId
-    _CLog "DeadlineWorker PID: `$svcPid"
-    if (`$svcPid -and `$svcPid -ne 0) {
-        Stop-Process -Id `$svcPid -Force -ErrorAction Stop
-        _CLog "force-killed PID `$svcPid"
-    } else {
-        _CLog "service had no live PID; nothing to kill"
-    }
+    Restart-Service -Name DeadlineWorker -Force
+    _CLog 'Restart-Service returned'
 } catch {
-    _CLog "Stop-Process failed: `$_"
+    _CLog "Restart-Service failed: `$_"
 }
 
-# Wait for SCM to mark the service Stopped (process death + reap is
-# a few hundred ms; cap at 30s).
 `$svc = Get-Service DeadlineWorker
 for (`$i = 0; `$i -lt 30; `$i++) {
     `$svc.Refresh()
-    if (`$svc.Status -eq 'Stopped') { break }
+    if (`$svc.Status -eq 'Running') { break }
     Start-Sleep -Seconds 1
 }
-_CLog "SCM service status after kill (loop end): `$(`$svc.Status)"
-
-# If SCM auto-restart recovery is configured, the service may already
-# be running. Either way, ensure it's started.
-if (`$svc.Status -ne 'Running') {
-    try {
-        Start-Service -Name DeadlineWorker
-        Start-Sleep -Seconds 2
-        `$svc.Refresh()
-        _CLog "Start-Service returned; status now `$(`$svc.Status)"
-    } catch {
-        _CLog "Start-Service failed: `$_"
-    }
-} else {
-    _CLog 'Service already running (auto-recovery path); nothing to do'
-}
+_CLog "SCM service status after restart (loop end): `$(`$svc.Status)"
 _CLog 'child done'
 "@
 $childScriptPath = Join-Path $env:TEMP 'deadline-bindings-rs-swap.ps1'
