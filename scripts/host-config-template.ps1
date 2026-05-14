@@ -29,29 +29,60 @@ $DEADLINE_WHL = "__DEADLINE_WHL__"
 
 # Parallel-install strategy (Windows SMF):
 #
-# We can't replace the agent's own modules in place -- pythonservice.exe
-# has the old `openjd._openjd_rs.pyd` mapped, and the running Python
-# import cache will keep returning the old `openjd.model` even after
-# pip --force-reinstall. We also can't reboot the EC2 instance; on SMF
-# spot, an in-guest reboot ends with Deadline tearing down the instance.
+# Two Windows + SMF constraints rule out the patterns that work on
+# Linux:
 #
-# Instead:
-#   1. Robocopy the AMI's Python311 to a sibling dir.
-#   2. pip-install the four bindings-rs wheels into the new tree's
-#      site-packages -- using the new tree's own python.exe.
-#   3. Hand off to a detached child PowerShell that, after this
-#      script exits, stops the DeadlineWorker service, rewrites its
-#      ImagePath registry value to the new pythonservice.exe, and
-#      starts the service back up. The child has to be detached so
-#      the SCM can stop the running service without killing the
-#      script that's stopping it.
-#   4. exit 0 so the agent persists host_configuration_succeeded=True
-#      before being killed by Stop-Service.
+#   1. We can't replace the agent's own modules in place. The running
+#      pythonservice.exe has the old `openjd._openjd_rs.pyd` mapped
+#      (file-in-use prevents overwrite), and even where pip succeeds
+#      in writing a new file the live import cache keeps returning the
+#      old `openjd.model`. `pip install --force-reinstall` is at best
+#      a no-op for the running interpreter.
 #
-# pythonservice.exe is not bound at compile time to a specific Python
-# install -- it loads pythonXY.dll via DLL adjacency, so a parallel
-# tree resolves to its own site-packages. ImagePath is the only registry
-# value that needs to change; PythonClass stays the same.
+#   2. We can't reboot the EC2 instance, and we can't take the
+#      service down through its normal "stop" path. On SMF spot,
+#      an in-guest reboot or a clean agent shutdown
+#      (UpdateWorker(STOPPED)) tells Deadline the worker is done and
+#      Deadline terminates the spot allocation -- the host doesn't
+#      come back as the same EC2 instance.
+#
+# Instead, build a parallel Python tree, install the new wheels into
+# it, and atomically repoint the SCM's ImagePath at the new tree's
+# pythonservice.exe so the next service start uses the new code.
+# pythonservice.exe is not bound at build time to a specific Python
+# install -- it loads pythonXY.dll via DLL adjacency, so a copied
+# tree resolves to its own site-packages. ImagePath is the only
+# registry value that needs to change; PythonClass stays the same.
+#
+# Sequence:
+#   1. Robocopy the AMI's Python311 to a sibling dir
+#      (Python311-bindings-rs).
+#   2. pip-install the four bindings-rs wheels into the new tree
+#      using its own python.exe; smoke-test `import openjd.model`
+#      from that interpreter. If the smoke test fails, throw before
+#      touching the registry -- the running service stays untouched.
+#   3. Drop a marker file (bindings-rs-installed) so the host-config
+#      run that the new agent process will trigger on startup is a
+#      no-op.
+#   4. Spawn a detached, hidden PowerShell child. The child:
+#        a. waits 3 seconds,
+#        b. rewrites ImagePath to the new pythonservice.exe,
+#        c. force-kills the running pythonservice.exe with
+#           Stop-Process -Force (NOT Stop-Service -- that would
+#           trigger UpdateWorker(STOPPED) and end the spot lease),
+#        d. waits for SCM to mark the service Stopped, then either
+#           lets SCM auto-recovery start it or calls Start-Service
+#           explicitly.
+#   5. The host-config script then blocks in `Start-Sleep -Seconds 60`.
+#      The child's force-kill terminates the host-config script as
+#      a side effect (it runs as a child of the same pythonservice.exe).
+#      Because the script never returns 0 to the agent, the agent
+#      never records host_configuration_succeeded=True and never
+#      enters the session loop -- so it can't pick up a job that
+#      would be left in an inconsistent state when the kill fires.
+#      After the new pythonservice.exe starts up, the new agent
+#      runs host-config again, hits the marker file, exits 0
+#      cleanly, and only THEN enters the session loop.
 
 Write-Host "Running Host Configuration script (parallel install of bindings-rs build)."
 _DLog "After Write-Host (start)"

@@ -38,10 +38,25 @@ Run `./deploy.py -h` for full usage details.
 6. Updates the fleet's host configuration and cycles it (scale to 0, then back up)
 
 New workers will run the host configuration script on startup, install
-the custom wheels, and pick up the new code. On Linux the script
-restarts the `deadline-worker.service` systemd unit in place; on
-Windows it reboots the host. The new agent then begins processing jobs
-with the updated libraries.
+the custom wheels, and pick up the new code. The mechanism differs by
+platform:
+
+- **Linux**: `pip install --force-reinstall` into the worker's venv at
+  `/opt/deadline/worker`, then `sudo systemctl restart
+  deadline-worker.service` to reload the service in place.
+- **Windows**: robocopy the AMI's `C:\Program Files\Python311` to a
+  sibling directory, install the wheels into the copy, and rewrite
+  the `DeadlineWorker` service's `ImagePath` registry value to point
+  at the copy's `pythonservice.exe`. A reboot would terminate the
+  spot EC2 instance, and a clean service stop would call
+  `UpdateWorker(STOPPED)` and end the worker lease, so the script
+  force-kills the running `pythonservice.exe` instead.
+
+In both cases the new agent picks up the same worker ID and re-runs
+host-config, hits a marker file from the install step, and enters the
+session loop with the Rust-backed wheels. See
+`deadline-cloud-worker-agent/docs/testing-worker-agent-on-smf.md` for
+the full design rationale.
 
 ## Wheels included
 

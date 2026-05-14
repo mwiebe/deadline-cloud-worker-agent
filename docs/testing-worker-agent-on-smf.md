@@ -168,6 +168,69 @@ already in place, so it short-circuits to "Custom wheels already
 installed", logs "Worker Agent host configuration succeeded", and enters
 the worker session loop with the Rust-backed wheels.
 
+### Windows host-configuration flow
+
+The Windows host-configuration script (`host-config-template.ps1`) can't
+use the same restart-in-place pattern as Linux. Two Windows + SMF
+constraints rule it out:
+
+1. **`pythonservice.exe` holds the old `.pyd`.** The running Windows
+   service has `openjd._openjd_rs.pyd` (the PyO3 native extension)
+   memory-mapped. `pip install --force-reinstall` either fails on
+   file-in-use or writes a new file that the live import cache will
+   ignore. Restarting just the service inside the same Python tree
+   would still leave the old extension loaded the next time
+   pythonservice.exe respawns from the same `python311.dll`.
+2. **Reboots and clean shutdowns end the spot lease.** A guest-side
+   `Restart-Computer` doesn't bring the same EC2 instance back —
+   Deadline Cloud terminates the spot allocation. A clean
+   `Stop-Service` is just as bad: the agent's normal shutdown path
+   calls `UpdateWorker(STOPPED)`, which Deadline interprets as
+   "worker is done", with the same outcome.
+
+The Windows script therefore does a parallel install and then
+atomically repoints the service:
+
+1. **Robocopy** `C:\Program Files\Python311` to a sibling directory
+   `Python311-bindings-rs` (`/MIR /XJ`).
+2. **pip-install** the four bindings-rs wheels into the new tree using
+   its own `python.exe` (so the running service's site-packages is
+   never touched).
+3. **Smoke-test** `import openjd.model` from the new interpreter. If
+   the import fails, the script throws *before* touching the registry
+   — the running service is untouched and the failure is visible in
+   both CloudWatch and a side log
+   (`C:\ProgramData\Amazon\Deadline\bindings-rs-debug.log`).
+4. **Drop a marker file**
+   (`C:\ProgramData\Amazon\Deadline\bindings-rs-installed`) so the
+   host-config run that the *post-swap* agent triggers on startup is a
+   no-op.
+5. **Spawn a detached child PowerShell.** It waits 3 s, rewrites
+   `HKLM:\SYSTEM\CurrentControlSet\Services\DeadlineWorker\ImagePath`
+   to the new tree's `pythonservice.exe`, then **force-kills** the
+   running `pythonservice.exe` with `Stop-Process -Force` (not
+   `Stop-Service` — that would trigger the spot-terminating clean
+   shutdown). The child waits for SCM to mark the service Stopped,
+   then either lets SCM auto-recovery restart the service or calls
+   `Start-Service` explicitly.
+6. **Block the host-config script in `Start-Sleep -Seconds 60` after
+   spawning the child.** The child's force-kill terminates the script
+   mid-sleep before it can `exit 0`. This is deliberate: if the script
+   *did* return 0, the agent would record
+   `host_configuration_succeeded=True` and immediately enter the
+   session loop, picking up a queued job whose session would then be
+   abandoned when the kill fires. By dying mid-script, the agent
+   never enters the session loop, and the post-swap agent inherits a
+   clean state.
+7. **The post-swap agent re-runs host-config.** The marker file from
+   step 4 short-circuits the install path; the script returns 0
+   cleanly, the agent records `host_configuration_succeeded=True`,
+   and only then enters the session loop.
+
+The whole swap is invisible to Deadline: the service comes back with
+the same worker ID (read from `Cache\worker.json`), so jobs queue and
+schedule normally on it.
+
 ## What to verify
 
 - Worker logs show `openjd.model: 0.9.x.post<N>+g<hash>` (and a similar
@@ -243,24 +306,55 @@ Then submit a small job and verify:
 
 The unified deployment directory supports both Linux and Windows fleets.
 The `--os windows` flag on `deploy.py` selects the correct wheel and
-uses the PowerShell host configuration template.
+uses the PowerShell host configuration template
+(`host-config-template.ps1`). See *Windows host-configuration flow*
+above for the design rationale.
 
 ### Windows-specific notes
 
-- The host configuration script is PowerShell (`host-config-template.ps1`)
-- The marker file is at `C:\ProgramData\Amazon\Deadline\rebooted`
-- The worker venv is activated via
-  `C:\ProgramData\Amazon\Deadline\worker\bin\activate.ps1`
-- Wheels are downloaded to `C:\temp\deadline-wheels\`
-- The openjd-model wheel must be `*win_amd64*.whl` — either built
-  natively on Windows or cross-compiled with `--target x86_64-pc-windows-msvc`
+- **Source Python tree**: `C:\Program Files\Python311` (the system-wide
+  Python the SMF AMI's `pythonservice.exe` runs out of). The host-config
+  script auto-detects this; if it's missing, it falls back to parsing
+  the `DeadlineWorker` service's `ImagePath` registry value.
+- **Parallel install**: `C:\Program Files\Python311-bindings-rs`. The
+  `pip install` and the post-swap `pythonservice.exe` both run out of
+  this tree.
+- **Marker file**:
+  `C:\ProgramData\Amazon\Deadline\bindings-rs-installed`. Written
+  before the service swap; the post-swap host-config run sees it and
+  exits 0 without re-installing.
+- **Side debug log**:
+  `C:\ProgramData\Amazon\Deadline\bindings-rs-debug.log`. The
+  host-config script and the detached service-swap child both append
+  here, and a subsequent host-config run echoes the prior log to
+  stdout — useful for diagnosing failures across the kill-and-restart
+  cycle since the CloudWatch log stream may miss output during the
+  swap.
+- **Wheel download dir**: `C:\temp\deadline-wheels\`.
+- **Wheel platform tag**: the openjd-model wheel must be `*win_amd64*`,
+  built natively on Windows or cross-compiled with
+  `--target x86_64-pc-windows-msvc`.
 
 ### Windows troubleshooting
 
-- **Host config fails**: Check CloudWatch worker bootstrap logs.
-  On Windows, ensure the fleet service role has S3 access and the
-  wheel filenames match the Python version on the AMI.
-- **Workers stuck rebooting**: The `C:\ProgramData\Amazon\Deadline\rebooted`
-  marker prevents infinite reboot loops.
-- **Wrong platform wheel**: The openjd-model wheel must be built for
-  `win_amd64`. If cross-compiling, ensure the MSVC target is installed.
+- **Smoke test fails before the swap**: the script throws "Smoke test
+  failed with exit code N — refusing to repoint the service." The
+  running service is untouched. Check CloudWatch and the side debug
+  log for the actual import error. Common causes are the same as
+  Linux (missing `_version.py`, wrong wheel ABI tag) plus a
+  Windows-specific one: the openjd-model wheel was built for the
+  wrong architecture or a different Python ABI than the one in
+  `Python311-bindings-rs`.
+- **Worker comes back as a NEW worker ID after the swap** (instead of
+  re-using the old one): the service was stopped through its clean
+  shutdown path, not force-killed. The agent's
+  `UpdateWorker(STOPPED)` made Deadline retire the worker and the
+  spot allocation, and the post-swap pythonservice.exe started up as
+  a fresh instance and registered a new worker. Check the side debug
+  log for `Stop-Process` errors.
+- **Host-config script slept past kill window**: the script logs
+  "ERROR: host-config script slept past kill window. Detached child
+  failed to fire." and exits 2. The detached child either failed to
+  start, failed to identify the running PID, or `Stop-Process` was
+  blocked. The side debug log will have details.
+- **Wrong platform wheel**: see the wheel platform tag note above.
