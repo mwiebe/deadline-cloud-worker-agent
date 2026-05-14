@@ -37,8 +37,11 @@ Run `./deploy.py -h` for full usage details.
 5. Generates a host configuration script from the template (filling in wheel names and S3 paths)
 6. Updates the fleet's host configuration and cycles it (scale to 0, then back up)
 
-New workers will run the host configuration script on startup, install the
-custom wheels, reboot, and begin processing jobs with the updated libraries.
+New workers will run the host configuration script on startup, install
+the custom wheels, and pick up the new code. On Linux the script
+restarts the `deadline-worker.service` systemd unit in place; on
+Windows it reboots the host. The new agent then begins processing jobs
+with the updated libraries.
 
 ## Wheels included
 
