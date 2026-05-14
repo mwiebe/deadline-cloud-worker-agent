@@ -27,62 +27,17 @@ $SESSIONS_WHL = "__SESSIONS_WHL__"
 $AGENT_WHL = "__AGENT_WHL__"
 $DEADLINE_WHL = "__DEADLINE_WHL__"
 
-# Parallel-install strategy (Windows SMF):
-#
-# Two Windows + SMF constraints rule out the patterns that work on
-# Linux:
-#
-#   1. We can't replace the agent's own modules in place. The running
-#      pythonservice.exe has the old `openjd._openjd_rs.pyd` mapped
-#      (file-in-use prevents overwrite), and even where pip succeeds
-#      in writing a new file the live import cache keeps returning the
-#      old `openjd.model`. `pip install --force-reinstall` is at best
-#      a no-op for the running interpreter.
-#
-#   2. We can't reboot the EC2 instance, and we can't take the
-#      service down through its normal "stop" path. On SMF spot,
-#      an in-guest reboot or a clean agent shutdown
-#      (UpdateWorker(STOPPED)) tells Deadline the worker is done and
-#      Deadline terminates the spot allocation -- the host doesn't
-#      come back as the same EC2 instance.
-#
-# Instead, build a parallel Python tree, install the new wheels into
-# it, and atomically repoint the SCM's ImagePath at the new tree's
-# pythonservice.exe so the next service start uses the new code.
-# pythonservice.exe is not bound at build time to a specific Python
-# install -- it loads pythonXY.dll via DLL adjacency, so a copied
-# tree resolves to its own site-packages. ImagePath is the only
-# registry value that needs to change; PythonClass stays the same.
-#
-# Sequence:
-#   1. Robocopy the AMI's Python311 to a sibling dir
-#      (Python311-bindings-rs).
-#   2. pip-install the four bindings-rs wheels into the new tree
-#      using its own python.exe; smoke-test `import openjd.model`
-#      from that interpreter. If the smoke test fails, throw before
-#      touching the registry -- the running service stays untouched.
-#   3. Drop a marker file (bindings-rs-installed) so the host-config
-#      run that the new agent process will trigger on startup is a
-#      no-op.
-#   4. Spawn a detached, hidden PowerShell child. The child:
-#        a. waits 3 seconds,
-#        b. rewrites ImagePath to the new pythonservice.exe,
-#        c. force-kills the running pythonservice.exe with
-#           Stop-Process -Force (NOT Stop-Service -- that would
-#           trigger UpdateWorker(STOPPED) and end the spot lease),
-#        d. waits for SCM to mark the service Stopped, then either
-#           lets SCM auto-recovery start it or calls Start-Service
-#           explicitly.
-#   5. The host-config script then blocks in `Start-Sleep -Seconds 60`.
-#      The child's force-kill terminates the host-config script as
-#      a side effect (it runs as a child of the same pythonservice.exe).
-#      Because the script never returns 0 to the agent, the agent
-#      never records host_configuration_succeeded=True and never
-#      enters the session loop -- so it can't pick up a job that
-#      would be left in an inconsistent state when the kill fires.
-#      After the new pythonservice.exe starts up, the new agent
-#      runs host-config again, hits the marker file, exits 0
-#      cleanly, and only THEN enters the session loop.
+# Parallel-install strategy (Windows SMF). See
+# docs/testing-worker-agent-on-smf.md for the rationale; in brief:
+#   - Robocopy the AMI's Python311 to a sibling dir
+#   - pip-install bindings-rs wheels into the copy
+#   - Drop a marker file so the post-restart host-config invocation
+#     is a no-op
+#   - Spawn a detached child that calls UpdateWorker(STOPPED) via
+#     AWS CLI, rewrites the SCM ImagePath, and force-kills
+#     pythonservice.exe
+#   - The host-config script sleeps until the kill; never returns 0,
+#     so the agent never enters the session loop with the old code
 
 Write-Host "Running Host Configuration script (parallel install of bindings-rs build)."
 _DLog "After Write-Host (start)"
@@ -197,39 +152,6 @@ if ($smokeRc -ne 0) {
 New-Item $markerFile -ItemType File -Force | Out-Null
 
 # --- Hand off to a detached child to swap and restart the service ---
-#
-# We can't restart our own service from inside it. Spawn a hidden,
-# detached powershell that:
-#   1. waits ~3s so we (the running host-config script) are still
-#      sitting in our heartbeat sleep loop -- the agent has not yet
-#      seen us return 0 and has not entered the session-poll loop;
-#   2. rewrites ImagePath in the registry to point at the parallel
-#      install's pythonservice.exe -- SCM only reads ImagePath on the
-#      next StartService call, so this doesn't touch the running
-#      process;
-#   3. calls Restart-Service -Force, which delivers SERVICE_CONTROL_STOP
-#      via SCM. That fires the agent's SvcStop callback, which sets
-#      _stop_event and lets the agent exit through its normal
-#      shutdown path -- including UpdateWorker(STOPPED). This matches
-#      the Linux flow exactly: `systemctl restart` sends SIGTERM,
-#      the agent's SIGTERM handler calls UpdateWorker(STOPPED), the
-#      new agent comes up <1s later, re-registers under the same
-#      worker_id from Cache\worker.json, and resumes heartbeats
-#      before Deadline's autoscaling reconciler reacts.
-#   4. SCM then starts a fresh pythonservice.exe using the new
-#      ImagePath. The new agent re-runs host-config (this script),
-#      sees the marker file we dropped before spawning this child,
-#      short-circuits with exit 0. Agent enters job loop with the
-#      bindings-rs build.
-#
-# Why NOT Stop-Process -Force on pythonservice.exe: that is SIGKILL,
-# not SIGTERM. SvcStop is an SCM callback (not an OS signal handler),
-# so it isn't fired on a force-kill. Without SvcStop, the agent
-# never calls UpdateWorker(STOPPED), and the server-side state
-# machine is left wedged in STARTED. The new agent can't transition
-# STARTED -> IDLE because Deadline still thinks the prior agent is
-# alive. We empirically saw workers stuck in STARTED for 5+ minutes
-# under that path. Restart-Service avoids it.
 $dstSvcExeQuoted = '"' + $dstSvcExe + '"'
 
 $childScript = @"
@@ -239,6 +161,37 @@ function _CLog { param(`$m) "`$(Get-Date -Format o)  [child]  `$m" | Out-File -F
 _CLog 'child started; sleeping 3s before swap'
 Start-Sleep -Seconds 3
 
+# Sequence: UpdateWorker(STOPPED) via AWS CLI, then ImagePath
+# rewrite, then force-kill pythonservice.exe, then Start-Service
+# brings up the new pythonservice.exe. We can't use Stop-Service
+# from here -- SCM's SERVICE_CONTROL_STOP would fire SvcStop in the
+# agent, but the agent's main thread is busy running this script,
+# so SvcStop can't be observed and Stop-Service deadlocks.
+try {
+    `$svc0 = Get-Service DeadlineWorker -ErrorAction Stop
+    _CLog "pre-swap service status: `$(`$svc0.Status)"
+} catch {
+    _CLog "Get-Service pre-check failed: `$_"
+}
+
+# 1. Tell Deadline the worker is going down.
+_CLog 'calling UpdateWorker(STOPPED)'
+try {
+    `$awsArgs = @(
+        'deadline', 'update-worker',
+        '--farm-id', `$env:DEADLINE_FARM_ID,
+        '--fleet-id', `$env:DEADLINE_FLEET_ID,
+        '--worker-id', `$env:DEADLINE_WORKER_ID,
+        '--status', 'STOPPED',
+        '--region', `$env:AWS_DEFAULT_REGION
+    )
+    `$out = & aws @awsArgs 2>&1
+    _CLog "UpdateWorker rc=`$LASTEXITCODE output=`$out"
+} catch {
+    _CLog "UpdateWorker call failed: `$_"
+}
+
+# 2. Rewrite the ImagePath.
 try {
     Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\DeadlineWorker' ``
         -Name ImagePath -Value '$dstSvcExeQuoted'
@@ -247,25 +200,40 @@ try {
     _CLog "Set-ItemProperty failed: `$_"
 }
 
-# Restart-Service -Force is the canonical Windows equivalent of
-# `systemctl restart`. SCM sends SERVICE_CONTROL_STOP -> the agent's
-# SvcStop fires -> agent calls UpdateWorker(STOPPED) and exits cleanly
-# -> SCM then calls StartService with the new ImagePath. -Force
-# bypasses dependent-service prompts; we have no dependents here.
+# 3. Force-kill pythonservice.exe. This kills our parent (the
+#    host-config script will be terminated mid-heartbeat).
 try {
-    Restart-Service -Name DeadlineWorker -Force
-    _CLog 'Restart-Service returned'
+    `$svcPid = (Get-CimInstance Win32_Service -Filter "Name='DeadlineWorker'").ProcessId
+    _CLog "DeadlineWorker PID: `$svcPid"
+    if (`$svcPid -and `$svcPid -ne 0) {
+        Stop-Process -Id `$svcPid -Force -ErrorAction Stop
+        _CLog "force-killed PID `$svcPid"
+    }
 } catch {
-    _CLog "Restart-Service failed: `$_"
+    _CLog "Stop-Process failed: `$_"
 }
 
+# 4. Wait for SCM, then start the new service.
 `$svc = Get-Service DeadlineWorker
 for (`$i = 0; `$i -lt 30; `$i++) {
     `$svc.Refresh()
-    if (`$svc.Status -eq 'Running') { break }
+    if (`$svc.Status -eq 'Stopped') { break }
     Start-Sleep -Seconds 1
 }
-_CLog "SCM service status after restart (loop end): `$(`$svc.Status)"
+_CLog "SCM service status after kill: `$(`$svc.Status)"
+
+if (`$svc.Status -ne 'Running') {
+    try {
+        Start-Service -Name DeadlineWorker -ErrorAction Stop
+        Start-Sleep -Seconds 2
+        `$svc.Refresh()
+        _CLog "Start-Service returned; status now `$(`$svc.Status)"
+    } catch {
+        _CLog "Start-Service failed: `$_"
+    }
+} else {
+    _CLog 'service already Running (auto-recovery); nothing to do'
+}
 _CLog 'child done'
 "@
 $childScriptPath = Join-Path $env:TEMP 'deadline-bindings-rs-swap.ps1'
