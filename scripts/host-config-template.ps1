@@ -140,12 +140,20 @@ $watchdogScript = @"
 `$debugLog = '$debugLog'
 `$bucket   = '$S3_BUCKET'
 `$key      = '$debugS3Key'
-for (`$i = 0; `$i -lt 60; `$i++) {
+`$instanceId = '$instanceId'
+`$logsDir = "`$env:ProgramData\Amazon\Deadline\Logs"
+# Run for ~30min so we capture post-swap agent crashes that happen
+# minutes after the swap.
+for (`$i = 0; `$i -lt 180; `$i++) {
     Start-Sleep -Seconds 10
     if (Test-Path `$debugLog) {
-        try {
-            & aws s3 cp `$debugLog "s3://`$bucket/`$key" --quiet 2>&1 | Out-Null
-        } catch { }
+        try { & aws s3 cp `$debugLog "s3://`$bucket/`$key" --quiet 2>&1 | Out-Null } catch { }
+    }
+    foreach (`$lname in @('worker-agent-bootstrap.log','worker-agent.log')) {
+        `$lpath = Join-Path `$logsDir `$lname
+        if (Test-Path `$lpath) {
+            try { & aws s3 cp `$lpath "s3://`$bucket/DeadlineCloud/bindings-rs-debug/`$instanceId-`$lname" --quiet 2>&1 | Out-Null } catch { }
+        }
     }
 }
 "@
@@ -166,11 +174,13 @@ if ($origImagePath -match '^"([^"]+)"(.*)$') {
 }
 _DLog "New ImagePath will be: $imagePathValue"
 
+$parentPid = $PID
 $childScript = @"
 `$ErrorActionPreference = 'Continue'
 `$debugLog = '$debugLog'
 `$bucket   = '$S3_BUCKET'
 `$debugKey = '$debugS3Key'
+`$parentPid = $parentPid
 function _CLog { param(`$m) "`$(Get-Date -Format o)  [child]  `$m" | Out-File -FilePath `$debugLog -Encoding utf8 -Append }
 function _UploadLog {
     if (Test-Path `$debugLog) {
@@ -223,6 +233,19 @@ try {
     }
 } catch {
     _CLog "Stop-Process failed: `$_"
+}
+
+# Also kill the host-config PowerShell process (our parent's parent)
+# so it releases its lock on host_configuration.log -- without this,
+# the post-swap agent's own host-config runner can't open that file
+# and crashes immediately, looping forever via SCM auto-restart.
+try {
+    if (`$parentPid -and `$parentPid -gt 0) {
+        Stop-Process -Id `$parentPid -Force -ErrorAction SilentlyContinue
+        _CLog "force-killed host-config script PID `$parentPid"
+    }
+} catch {
+    _CLog "kill host-config script failed: `$_"
 }
 
 `$svc = Get-Service DeadlineWorker
@@ -290,9 +313,11 @@ try {
     `$logsDir = "`$env:ProgramData\Amazon\Deadline\Logs"
     if (Test-Path `$logsDir) {
         Get-ChildItem `$logsDir -File -ErrorAction SilentlyContinue | ForEach-Object { _DiagLog "agentlog `$(`$_.Name) size=`$(`$_.Length) lastWrite=`$(`$_.LastWriteTime.ToString('s'))" }
-        `$bootstrapLog = Join-Path `$logsDir 'worker-agent-bootstrap.log'
-        if (Test-Path `$bootstrapLog) {
-            try { Get-Content `$bootstrapLog -Tail 50 -Encoding utf8 | ForEach-Object { _DiagLog "bootstrap.log: `$_" } } catch { _DiagLog "bootstrap read fail: `$_" }
+        foreach (`$logName in @('worker-agent-bootstrap.log','worker-agent.log')) {
+            `$logPath = Join-Path `$logsDir `$logName
+            if (Test-Path `$logPath) {
+                try { Get-Content `$logPath -Tail 60 -Encoding utf8 | ForEach-Object { _DiagLog "`${logName}: `$_" } } catch { _DiagLog "`${logName} read fail: `$_" }
+            }
         }
     } else { _DiagLog "logsDir missing: `$logsDir" }
     _DiagLog "=== diag end"
@@ -312,10 +337,10 @@ Start-Process -FilePath 'powershell.exe' `
     -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $childScriptPath) `
     -WindowStyle Hidden
 
-Write-Host "Sleeping up to 60s; detached child will kill the service before this returns."
+Write-Host "Sleeping up to 60s; detached child will kill us before this returns."
 for ($i = 1; $i -le 60; $i++) {
-    Write-Host ("heartbeat {0:D2}/60 (waiting for kill)" -f $i)
+    Write-Host ("hb {0:D2}/60" -f $i)
     Start-Sleep -Seconds 1
 }
-Write-Host "ERROR: host-config script slept past kill window. Detached child failed to fire."
+Write-Host "ERROR: detached child failed to fire."
 exit 2
