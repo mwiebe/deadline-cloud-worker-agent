@@ -10,7 +10,7 @@ from deadline_worker_agent.sessions.job_entities.job_details import (
 )
 from deadline_worker_agent.api_models import JobDetailsData
 from openjd.model._v1 import SpecificationRevision
-from openjd.sessions.v1 import PosixSessionUser, SessionUser, WindowsSessionUser
+from openjd.sessions._v1 import PosixSessionUser, SessionUser, WindowsSessionUser
 import os
 
 

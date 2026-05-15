@@ -28,7 +28,7 @@ from openjd.model._v1.v2023_09 import (
     CommandString,
     ArgString,
 )
-from openjd.sessions.v1 import (
+from openjd.sessions._v1 import (
     PathMappingRule,
     SessionUser,
     PosixSessionUser,

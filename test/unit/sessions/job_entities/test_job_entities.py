@@ -21,7 +21,7 @@ from openjd.model._v1.v2023_09 import (
     StepTemplate,
     CommandString,
 )
-from openjd.sessions.v1 import PosixSessionUser, WindowsSessionUser, SessionUser
+from openjd.sessions._v1 import PosixSessionUser, WindowsSessionUser, SessionUser
 
 
 import pytest

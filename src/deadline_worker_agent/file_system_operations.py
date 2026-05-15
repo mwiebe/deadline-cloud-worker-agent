@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 from typing import Optional
-from openjd.sessions.v1 import WindowsSessionUser, SessionUser
+from openjd.sessions._v1 import WindowsSessionUser, SessionUser
 import getpass
 from pathlib import Path
 import os

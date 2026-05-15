@@ -10,7 +10,7 @@ import logging
 
 from deadline_worker_agent.api_models import ManifestInfo
 
-from openjd.sessions.v1 import (
+from openjd.sessions._v1 import (
     ActionState,
     ActionStatus,
     SessionUser,

@@ -6,7 +6,7 @@ from typing import Generator
 import string
 import sys
 
-from openjd.sessions.v1 import BadCredentialsException
+from openjd.sessions._v1 import BadCredentialsException
 from pytest import fixture, param
 import pytest
 

@@ -7,7 +7,7 @@ from typing import Generator
 import botocore
 import sys
 
-from openjd.sessions.v1 import WindowsSessionUser, BadCredentialsException
+from openjd.sessions._v1 import WindowsSessionUser, BadCredentialsException
 from pytest import fixture
 import pytest
 

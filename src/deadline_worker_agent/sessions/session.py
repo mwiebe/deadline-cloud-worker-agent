@@ -44,7 +44,7 @@ from openjd.model._v1 import (
     SpecificationRevision,
 )
 
-from openjd.sessions.v1 import (
+from openjd.sessions._v1 import (
     ActionState,
     ActionStatus,
     EnvironmentIdentifier,

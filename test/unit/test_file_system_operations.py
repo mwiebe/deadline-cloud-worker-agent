@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from unittest import mock
 from unittest.mock import patch
-from openjd.sessions.v1 import WindowsSessionUser
+from openjd.sessions._v1 import WindowsSessionUser
 import pytest
 import deadline_worker_agent.file_system_operations as file_system_operations
 

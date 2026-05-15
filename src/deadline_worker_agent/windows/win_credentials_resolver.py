@@ -14,7 +14,7 @@ from typing import Dict
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 from botocore.retries.standard import RetryContext
-from openjd.sessions.v1 import WindowsSessionUser, BadCredentialsException
+from openjd.sessions._v1 import WindowsSessionUser, BadCredentialsException
 
 from ..boto import (
     OTHER_BOTOCORE_CONFIG,

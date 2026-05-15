@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from deadline_worker_agent.scheduler.scheduler import WorkerScheduler
 from deadline_worker_agent.scheduler.session_action_status import SessionActionStatus
 from deadline_worker_agent.api_models import ManifestInfo
-from openjd.sessions.v1 import ActionStatus, ActionState
+from openjd.sessions._v1 import ActionStatus, ActionState
 
 
 class TestSchedulerManifests:

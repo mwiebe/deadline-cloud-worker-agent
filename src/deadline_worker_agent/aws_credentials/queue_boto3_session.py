@@ -15,7 +15,7 @@ import subprocess
 
 # Third-party
 from botocore.utils import JSONFileCache
-from openjd.sessions.v1 import PosixSessionUser, WindowsSessionUser, SessionUser
+from openjd.sessions._v1 import PosixSessionUser, WindowsSessionUser, SessionUser
 
 # First-party
 from ..boto import DeadlineClient

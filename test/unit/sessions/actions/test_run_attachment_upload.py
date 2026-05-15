@@ -12,7 +12,7 @@ import pytest
 
 import deadline_worker_agent.sessions.actions as actions_module
 from deadline_worker_agent.sessions.job_entities.job_details import JobDetails
-from openjd.sessions.v1 import SessionUser
+from openjd.sessions._v1 import SessionUser
 from openjd.model._v1 import ParameterValue
 from openjd.model._v1.v2023_09 import (
     EmbeddedFileTypes as EmbeddedFileTypes_2023_09,

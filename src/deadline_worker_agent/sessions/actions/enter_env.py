@@ -4,7 +4,7 @@ from __future__ import annotations
 from concurrent.futures import Executor
 from typing import Any, TYPE_CHECKING
 
-from openjd.sessions.v1 import EnvironmentIdentifier
+from openjd.sessions._v1 import EnvironmentIdentifier
 
 from ..job_entities import EnvironmentDetails
 from ...log_messages import SessionActionLogKind

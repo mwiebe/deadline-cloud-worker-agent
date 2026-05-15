@@ -8,7 +8,7 @@ import sys
 from typing import Generator
 from unittest.mock import MagicMock, patch
 
-from openjd.sessions.v1 import SessionUser, PosixSessionUser, WindowsSessionUser
+from openjd.sessions._v1 import SessionUser, PosixSessionUser, WindowsSessionUser
 import pytest
 
 from deadline_worker_agent.scheduler.session_cleanup import (

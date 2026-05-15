@@ -34,7 +34,7 @@ from deadline_worker_agent.aws.deadline import (
     record_vfs_mount_telemetry_event,
 )
 
-from openjd.sessions.v1 import (
+from openjd.sessions._v1 import (
     LOG as OPENJD_LOG,
     LogContent,
     PathMappingRule as OpenjdPathMapping,

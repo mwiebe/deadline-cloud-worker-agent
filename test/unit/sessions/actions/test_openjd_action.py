@@ -7,7 +7,7 @@ from unittest.mock import Mock
 from deadline_worker_agent.sessions import Session
 import re
 
-from openjd.sessions.v1 import ActionState, ActionStatus
+from openjd.sessions._v1 import ActionState, ActionStatus
 import pytest
 
 from deadline_worker_agent.sessions.actions.openjd_action import OpenjdAction

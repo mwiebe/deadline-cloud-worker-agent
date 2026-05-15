@@ -11,7 +11,7 @@ import stat
 import tempfile
 
 # Third-party
-from openjd.sessions.v1 import PosixSessionUser, WindowsSessionUser, SessionUser
+from openjd.sessions._v1 import PosixSessionUser, WindowsSessionUser, SessionUser
 import pytest
 
 # First-party

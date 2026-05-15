@@ -11,7 +11,7 @@ import logging
 import os
 import stat
 
-from openjd.sessions.v1 import PosixSessionUser, SessionUser
+from openjd.sessions._v1 import PosixSessionUser, SessionUser
 
 from ..file_system_operations import (
     FileSystemPermissionEnum,

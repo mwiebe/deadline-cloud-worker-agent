@@ -15,12 +15,12 @@ from openjd.model._v1 import (
     TemplateSpecificationVersion,
     UnsupportedSchema,
 )
-from openjd.sessions.v1 import (
+from openjd.sessions._v1 import (
     PathFormat,
     PosixSessionUser,
     WindowsSessionUser,
 )
-from openjd.sessions.v1 import PathMappingRule as OPENJDPathMappingRule
+from openjd.sessions._v1 import PathMappingRule as OPENJDPathMappingRule
 
 from ...api_models import (
     FloatParameter,

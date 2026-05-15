@@ -12,7 +12,7 @@ from typing import Any, Optional, Sequence, Tuple, cast, TYPE_CHECKING
 
 from pydantic.v1 import ValidationError
 
-from openjd.sessions.v1 import PosixSessionUser, SessionUser
+from openjd.sessions._v1 import PosixSessionUser, SessionUser
 
 from ..capabilities import Capabilities
 from .cli_args import ParsedCommandLineArguments, get_argument_parser

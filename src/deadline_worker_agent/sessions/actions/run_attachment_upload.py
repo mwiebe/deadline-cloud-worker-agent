@@ -12,7 +12,7 @@ from pathlib import Path
 from deadline.job_attachments.models import (
     JobAttachmentS3Settings,
 )
-from openjd.sessions.v1 import LOG as OPENJD_LOG, LogContent
+from openjd.sessions._v1 import LOG as OPENJD_LOG, LogContent
 from openjd.model._v1.v2023_09 import (
     EmbeddedFileTypes as EmbeddedFileTypes_2023_09,
     EmbeddedFileText as EmbeddedFileText_2023_09,
