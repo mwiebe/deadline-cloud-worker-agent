@@ -6,10 +6,12 @@ from unittest.mock import MagicMock, patch
 
 from deadline.job_attachments.models import JobAttachmentsFileSystem
 from openjd.model._v1 import (
-    ParameterValue,
-    ParameterValueType,
     SpecificationRevision,
     TemplateSpecificationVersion,
+)
+from openjd.model._v1.types import (
+    JobParameterType,
+    JobParameterValue,
 )
 from openjd.model._v1.v2023_09 import (
     Action,
@@ -94,18 +96,18 @@ def windows_credentials_resolver(os_user: MagicMock) -> Optional[MagicMock]:
 
 
 @pytest.fixture
-def job_details_parameters() -> dict[str, ParameterValue]:
+def job_details_parameters() -> dict[str, JobParameterValue]:
     return {
-        "p_string": ParameterValue(type=ParameterValueType.STRING, value="string_value"),
-        "p_int": ParameterValue(type=ParameterValueType.INT, value="1"),
-        "p_float": ParameterValue(type=ParameterValueType.FLOAT, value="1.2"),
-        "p_path": ParameterValue(type=ParameterValueType.PATH, value="/tmp/share"),
+        "p_string": JobParameterValue(type=JobParameterType.STRING, value="string_value"),
+        "p_int": JobParameterValue(type=JobParameterType.INT, value="1"),
+        "p_float": JobParameterValue(type=JobParameterType.FLOAT, value="1.2"),
+        "p_path": JobParameterValue(type=JobParameterType.PATH, value="/tmp/share"),
     }
 
 
 @pytest.fixture
 def job_details_with_user(
-    os_user: SessionUser, job_details_parameters: dict[str, ParameterValue]
+    os_user: SessionUser, job_details_parameters: dict[str, JobParameterValue]
 ) -> JobDetails:
     if os.name == "posix":
         posix_user = cast(PosixSessionUser, os_user)

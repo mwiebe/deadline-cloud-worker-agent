@@ -473,7 +473,7 @@ class WorkerScheduler:
             )
             with self._action_update_lock:
                 self._action_updates_map.clear()
-            return self._INITIAL_POLL_INTERVAL.total_seconds()
+            return int(self._INITIAL_POLL_INTERVAL.total_seconds())
 
         commit_completed_actions()
 

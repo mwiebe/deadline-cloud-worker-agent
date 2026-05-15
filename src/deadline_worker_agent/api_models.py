@@ -296,12 +296,7 @@ class JobDetailsData(JobDetailsIdentifierFields):
     parameters: NotRequired[
         dict[
             str,
-            StringParameter
-            | PathParameter
-            | IntParameter
-            | FloatParameter
-            | ChunkIntParameter
-            | str,
+            StringParameter | PathParameter | IntParameter | FloatParameter,
         ]
     ]
     """The job parameters"""

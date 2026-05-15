@@ -23,7 +23,7 @@ from openjd.model._v1.v2023_09 import (
     CommandString,
     DataString,
 )
-from openjd.model._v1 import ParameterValue
+from openjd.model._v1.types import TaskParameterValue
 
 from ...log_messages import SessionActionLogKind
 from ..attachment_models import WorkerManifestProperties
@@ -199,7 +199,7 @@ class AttachmentUploadAction(OpenjdAction):
 
         session._run_attachment_sync_task(
             step_script=self._step_script,
-            task_parameter_values=dict[str, ParameterValue](),
+            task_parameter_values=dict[str, TaskParameterValue](),
             os_env_vars=env_vars,
             log_task_banner=False,
         )

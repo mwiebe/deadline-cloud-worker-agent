@@ -7,10 +7,12 @@ from collections import OrderedDict
 
 from deadline.job_attachments.models import JobAttachmentsFileSystem
 from openjd.model._v1 import (
-    ParameterValue,
-    ParameterValueType,
     TemplateSpecificationVersion,
     UnsupportedSchema,
+)
+from openjd.model._v1.types import (
+    TaskParameterType,
+    TaskParameterValue,
 )
 from openjd.model._v1.v2023_09 import (
     Environment,
@@ -155,10 +157,12 @@ class TestSessionActionQueueDequeue:
                     task_id="taskId",
                     details=StepDetails(step_template=_TEST_STEP_TEMPLATE, step_id="stepId"),
                     task_parameter_values={
-                        "strP": ParameterValue(type=ParameterValueType.STRING, value="stringValue"),
-                        "pathP": ParameterValue(type=ParameterValueType.PATH, value="/tmp"),
-                        "intP": ParameterValue(type=ParameterValueType.INT, value="12"),
-                        "floatP": ParameterValue(type=ParameterValueType.FLOAT, value="1.2"),
+                        "strP": TaskParameterValue(
+                            type=TaskParameterType.STRING, value="stringValue"
+                        ),
+                        "pathP": TaskParameterValue(type=TaskParameterType.PATH, value="/tmp"),
+                        "intP": TaskParameterValue(type=TaskParameterType.INT, value="12"),
+                        "floatP": TaskParameterValue(type=TaskParameterType.FLOAT, value="1.2"),
                     },
                 ),
                 id="task run",

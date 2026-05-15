@@ -1,6 +1,5 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
-import os
 import stat
 import sys
 import time
@@ -140,7 +139,9 @@ class HostConfigurationScriptRunner:
         script_path = self._session_directory / script_file_name
         script_path.write_text(self._host_configuration_script)
         if sys.platform != "win32":
-            script_path.chmod(script_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            script_path.chmod(
+                script_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+            )
         return str(script_path)
 
     def _host_configuration_env_vars(self) -> dict[str, str]:

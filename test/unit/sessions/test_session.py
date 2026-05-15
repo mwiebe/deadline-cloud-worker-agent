@@ -14,7 +14,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from openjd.model._v1 import ParameterValue
+from openjd.model._v1.types import TaskParameterValue
 from openjd.model._v1.v2023_09 import (
     Action,
     Environment,
@@ -203,7 +203,7 @@ def run_step_task_action(
         ),
         id=action_id,
         task_id=task_id,
-        task_parameter_values=dict[str, ParameterValue](),
+        task_parameter_values=dict[str, TaskParameterValue](),
     )
 
 
@@ -1068,7 +1068,7 @@ class TestSessionActionUpdatedImpl:
                 ),
                 id=action_id,
                 task_id=task_id,
-                task_parameter_values=dict[str, ParameterValue](),
+                task_parameter_values=dict[str, TaskParameterValue](),
             ),
             start_time=action_start_time,
         )
@@ -1137,7 +1137,7 @@ class TestSessionActionUpdatedImpl:
                 ),
                 id=action_id,
                 task_id=task_id,
-                task_parameter_values=dict[str, ParameterValue](),
+                task_parameter_values=dict[str, TaskParameterValue](),
             ),
             start_time=action_start_time,
         )
@@ -1416,7 +1416,7 @@ class TestSessionActionUpdatedImpl:
                 ),
                 id=action_id,
                 task_id=task_id,
-                task_parameter_values=dict[str, ParameterValue](),
+                task_parameter_values=dict[str, TaskParameterValue](),
             ),
             start_time=action_start_time,
         )
@@ -1547,7 +1547,7 @@ class TestSessionActionUpdatedImpl:
                 ),
                 id=action_id,
                 task_id=task_id,
-                task_parameter_values=dict[str, ParameterValue](),
+                task_parameter_values=dict[str, TaskParameterValue](),
             ),
             start_time=datetime.now(tz=timezone.utc),
         )
@@ -1600,7 +1600,7 @@ class TestSessionActionUpdatedImpl:
                 ),
                 id=action_id,
                 task_id=task_id,
-                task_parameter_values=dict[str, ParameterValue](),
+                task_parameter_values=dict[str, TaskParameterValue](),
             ),
             start_time=datetime.now(tz=timezone.utc),
         )
@@ -2493,7 +2493,7 @@ class TestRunAttachmentSyncTask:
         # WHEN
         session._run_attachment_sync_task(
             step_script=step_script_model,
-            task_parameter_values=dict[str, ParameterValue](),
+            task_parameter_values=dict[str, TaskParameterValue](),
             os_env_vars=os_env_vars,
             log_task_banner=log_task_banner,
         )
@@ -2501,7 +2501,7 @@ class TestRunAttachmentSyncTask:
         # THEN
         mock_openjd_session._run_task_without_session_env.assert_called_once_with(
             step_script=step_script_model,
-            task_parameter_values=dict[str, ParameterValue](),
+            task_parameter_values=dict[str, TaskParameterValue](),
             os_env_vars=os_env_vars,
             log_task_banner=log_task_banner,
         )

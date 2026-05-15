@@ -3,6 +3,71 @@
 Test the Rust-backed openjd libraries on a real SMF fleet by uploading
 custom wheels and using a host configuration script to install them.
 
+## Why this flow differs from the generic SMF custom-worker pattern
+
+The generic "custom worker on SMF" pattern (see the
+[`custom-worker-on-smf` skill](../skills/custom-worker-on-smf/SKILL.md))
+does `pip install git+...` from the host configuration script and then
+**reboots** the worker. That works for pure-Python changes against a
+single repo. The Rust-bindings build needs a different shape:
+
+- **Native extension build, not pure pip-from-Git.** `openjd-model`
+  ships a PyO3 native extension built with maturin. The wheel must
+  match the SMF AMI's libc / Python ABI / architecture (manylinux
+  glibc 2.34+ on AL2023, `win_amd64` on Windows). Asking the worker
+  to build this on boot would require shipping a Rust toolchain into
+  the host-config script and would fight the AMI's glibc on every
+  start.
+- **Cross-repo path dependencies.** `openjd-model-for-python/rust-bindings/Cargo.toml`
+  has relative path deps to `../../openjd-rs/crates/*`, and the model
+  wheel itself is built by an in-tree PEP 517 backend
+  (`_build_backend.py`) that injects a VCS-derived
+  `0.9.x.post<N>+g<hash>` version. Reproducing that on the worker
+  from `git+` URLs would require pulling all five repos and
+  reproducing the workspace layout — `pip` can't do that.
+- **Multi-package coordinated install.** A bindings-rs deploy
+  swaps four wheels (`openjd-model`, `openjd-sessions`,
+  `deadline-cloud-worker-agent`, `deadline-cloud`) as a set. Building
+  them once at deploy time and uploading the matched set to S3 keeps
+  the version triple consistent across workers and avoids each worker
+  resolving Git refs independently.
+- **Restart-in-place instead of reboot (Linux).** The generic
+  skill's `sudo reboot now` is reliable but blind: if the new agent
+  fails to come back up, the previous CloudWatch log stream ends and
+  the failure is invisible until the next worker registers. This
+  flow uses `systemctl restart deadline-worker.service` so the
+  CloudWatch agent stays connected and the new agent's startup
+  surfaces in the same log stream within seconds.
+- **Pre-restart sanity gate.** Before the restart, the script
+  imports every key module and runs `deadline-worker-agent --help`.
+  Failures here exit non-zero **without** restarting — the existing
+  agent keeps running and the failure is visible in the host-config
+  log. The reboot-based generic flow has no equivalent: any
+  post-install error appears (if at all) only after the host comes
+  back up.
+- **Content-keyed idempotency marker.** The marker file
+  (`/var/lib/deadline/custom-wheels-installed` on Linux,
+  `C:\ProgramData\Amazon\Deadline\bindings-rs-installed` on Windows)
+  is keyed on the **wheel filenames** rather than just existing or
+  not. New deploys with new wheels invalidate the marker
+  automatically; redeploying the same wheel set is a fast no-op.
+- **`--force-reinstall --no-deps`.** Each wheel is installed with
+  `--force-reinstall --no-deps` so the AMI's PyPI-installed versions
+  are overwritten and pip can't pull in transitive updates that
+  would diverge from the tested wheel set.
+- **Windows can't restart in place.** `pythonservice.exe` holds
+  `openjd._openjd_rs.pyd` memory-mapped, and any clean
+  `Stop-Service` / `Restart-Computer` would terminate the spot
+  lease. The Windows flow does a parallel-tree install plus a
+  registry-repointed force-kill instead — see the *Windows
+  host-configuration flow* section below.
+- **Side debug log + S3 watchdog (Windows).** The Windows swap
+  kill-and-restart can drop output from the CloudWatch agent. The
+  host-config script writes a side log to
+  `C:\ProgramData\Amazon\Deadline\bindings-rs-debug.log` and spawns
+  a watchdog that uploads it (and the worker-agent logs) to S3 every
+  10s for 30 min, so the swap window stays diagnosable.
+
 ## Prerequisites
 
 ### Workspace layout
@@ -18,7 +83,7 @@ containing these checkouts:
 | `$WORKSPACE_DIR/deadline-cloud-worker-agent` | `mwiebe/deadline-cloud-worker-agent` (fork) | `bindings-rs` |
 | `$WORKSPACE_DIR/deadline-cloud` | `aws-deadline/deadline-cloud` | `mainline` |
 
-The `openjd-model-for-python/rust/Cargo.toml` has relative path
+The `openjd-model-for-python/rust-bindings/Cargo.toml` has relative path
 dependencies to `../../openjd-rs/crates/*`, so the repos must be
 siblings in the same parent directory.
 
@@ -138,7 +203,9 @@ new code, then start processing jobs with the Rust-backed libraries.
 
 ### Linux host-configuration flow
 
-The Linux host-configuration script (`host-config-template.sh`):
+The Linux host-configuration script (`host-config-template.sh`) is
+*restart-in-place*, not reboot-based — see the rationale section at
+the top of this doc. The script:
 
 1. Compares a content-keyed marker
    (`/var/lib/deadline/custom-wheels-installed`) against the wheel set

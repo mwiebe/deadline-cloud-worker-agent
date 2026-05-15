@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 from concurrent.futures import Executor
+from typing import TYPE_CHECKING, Any, Optional
 
 from openjd.model._v1 import TaskParameterSet
 
 from ...log_messages import SessionActionLogKind
 from .openjd_action import OpenjdAction
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
 
+if TYPE_CHECKING:
     from ..job_entities import StepDetails
     from ..session import Session
 

@@ -29,10 +29,12 @@ class EnvironmentDetails:
             TemplateSpecificationVersion.JOBTEMPLATE_v2023_09,
             TemplateSpecificationVersion.ENVIRONMENT_v2023_09,
         ):
-            env_template = decode_environment_template_dict({
-                "specificationVersion": "environment-2023-09",
-                "environment": environment_details_data["template"],
-            })
+            env_template = decode_environment_template_dict(
+                {
+                    "specificationVersion": "environment-2023-09",
+                    "environment": environment_details_data["template"],
+                }
+            )
             environment = create_environment(env_template)
         else:
             raise UnsupportedSchema(schema_version.value)

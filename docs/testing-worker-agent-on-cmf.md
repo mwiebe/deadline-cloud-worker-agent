@@ -31,7 +31,7 @@ Same as the SMF doc — you need sibling checkouts:
 | `$WORKSPACE_DIR/deadline-cloud-worker-agent` | `mwiebe/deadline-cloud-worker-agent` (fork) | `bindings-rs` |
 | `$WORKSPACE_DIR/deadline-cloud` | `aws-deadline/deadline-cloud` | `mainline` |
 
-The `openjd-model-for-python/rust/Cargo.toml` has relative path
+The `openjd-model-for-python/rust-bindings/Cargo.toml` has relative path
 dependencies into `../../openjd-rs/crates/*`, so the checkouts must be
 siblings in the same parent directory.
 
@@ -95,7 +95,7 @@ pip install --upgrade pip maturin setuptools_scm
 
 ```bash
 cd $WORKSPACE_DIR/openjd-model-for-python
-python scripts/maturin_build.py develop --release --manifest-path rust/Cargo.toml
+python scripts/maturin_build.py develop --release --manifest-path rust-bindings/Cargo.toml
 ```
 
 The wrapper invokes `maturin develop` after computing a VCS-derived
@@ -306,7 +306,7 @@ via `deadline delete-worker`.
 
 - **`openjd.model.__file__` points to site-packages, not the workspace**
   — the venv still has a cached PyPI install. Reinstall:
-  `pip uninstall -y openjd-model && cd $WORKSPACE_DIR/openjd-model-for-python && python scripts/maturin_build.py develop --release --manifest-path rust/Cargo.toml`.
+  `pip uninstall -y openjd-model && cd $WORKSPACE_DIR/openjd-model-for-python && python scripts/maturin_build.py develop --release --manifest-path rust-bindings/Cargo.toml`.
 - **`ImportError: cannot import name 'Environment' from 'openjd.model'`**
   — The Rust-backed v1 package doesn't export the old Pydantic
   `Environment` symbol at the top level. This means the worker agent or

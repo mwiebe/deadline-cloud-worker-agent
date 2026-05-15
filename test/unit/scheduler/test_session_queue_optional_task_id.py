@@ -57,7 +57,7 @@ class TestSessionActionQueueOptionalTaskId:
 
         # Act
         with patch(
-            "deadline_worker_agent.scheduler.session_queue.parameters_from_api_response",
+            "deadline_worker_agent.scheduler.session_queue.task_parameters_from_api_response",
             return_value={},
         ):
             action = session_queue.dequeue()
@@ -90,7 +90,7 @@ class TestSessionActionQueueOptionalTaskId:
 
         # Act
         with patch(
-            "deadline_worker_agent.scheduler.session_queue.parameters_from_api_response",
+            "deadline_worker_agent.scheduler.session_queue.task_parameters_from_api_response",
             return_value={},
         ):
             action = session_queue.dequeue()

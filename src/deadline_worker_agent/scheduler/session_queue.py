@@ -39,7 +39,7 @@ from ..sessions.errors import (
     JobEntityUnsupportedSchemaError,
     StepDetailsError,
 )
-from ..sessions.job_entities.job_details import parameters_from_api_response
+from ..sessions.job_entities.job_details import task_parameters_from_api_response
 from ..log_messages import SessionLogEvent, SessionLogEventSubtype, SessionActionLogKind
 
 if TYPE_CHECKING:
@@ -469,7 +469,7 @@ class SessionActionQueue:
                         task_id=task_id,
                     ) from e
                 task_parameters_data: dict = action_definition.get("parameters", {})
-                task_parameters = parameters_from_api_response(task_parameters_data)
+                task_parameters = task_parameters_from_api_response(task_parameters_data)
 
                 next_action = RunStepTaskAction(
                     id=action_id,

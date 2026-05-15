@@ -51,7 +51,7 @@ from openjd.model._v1.v2023_09 import (
     ArgString,
     DataString,
 )
-from openjd.model._v1 import ParameterValue
+from openjd.model._v1.types import TaskParameterValue
 
 from ...log_messages import SessionActionLogKind
 from .openjd_action import OpenjdAction
@@ -294,10 +294,8 @@ class AttachmentDownloadAction(OpenjdAction):
 
         # Extend the session's path mapping rules with job attachment mappings.
         # The session handles sorting by source path length internally.
-        new_rules = [
-            OpenjdPathMapping.from_dict(r) for r in job_attachment_path_mappings
-        ]
-        if hasattr(session.openjd_session, 'extend_path_mapping_rules'):
+        new_rules = [OpenjdPathMapping.from_dict(r) for r in job_attachment_path_mappings]
+        if hasattr(session.openjd_session, "extend_path_mapping_rules"):
             session.openjd_session.extend_path_mapping_rules(new_rules)
         else:
             if session.openjd_session._path_mapping_rules:
@@ -362,7 +360,7 @@ class AttachmentDownloadAction(OpenjdAction):
                         )
                     ),
                 ),
-                task_parameter_values=dict[str, ParameterValue](),
+                task_parameter_values=dict[str, TaskParameterValue](),
                 log_task_banner=False,
             )
         else:
@@ -373,7 +371,7 @@ class AttachmentDownloadAction(OpenjdAction):
             assert self._step_script is not None
             session._run_attachment_sync_task(
                 step_script=self._step_script,
-                task_parameter_values=dict[str, ParameterValue](),
+                task_parameter_values=dict[str, TaskParameterValue](),
                 os_env_vars={
                     "DEADLINE_QUEUE_ID": session._queue_id,
                     # Ensure UTF-8 encoding for stdout/stderr to prevent UnicodeEncodeError

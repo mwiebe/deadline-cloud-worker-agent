@@ -209,7 +209,12 @@ class Session:
             # extensions once those are returned by BatchGetJobEntity
             revision_extensions=RevisionExtensions(
                 spec_rev=SpecificationRevision.v2023_09,
-                supported_extensions=["TASK_CHUNKING", "REDACTED_ENV_VARS", "EXPR", "FEATURE_BUNDLE_1"],
+                supported_extensions=[
+                    "TASK_CHUNKING",
+                    "REDACTED_ENV_VARS",
+                    "EXPR",
+                    "FEATURE_BUNDLE_1",
+                ],
             ),
         )
 
@@ -1174,7 +1179,8 @@ class Session:
                     id=current_action.definition.id,
                     status=action_status,
                     start_time=action_status.started_at or current_action.start_time,
-                    end_time=action_status.ended_at or (now if action_status.state != ActionState.RUNNING else None),
+                    end_time=action_status.ended_at
+                    or (now if action_status.state != ActionState.RUNNING else None),
                     update_time=now if action_status.state == ActionState.RUNNING else None,
                     completed_status=completed_status,
                     manifests=session_manifests,
@@ -1222,9 +1228,11 @@ class Session:
                     # Set permissions: owner rw, group r (matching openjd embedded file handling).
                     # The group is set to the session user's group so the job-user can read it.
                     import stat
+
                     mode = stat.S_IRUSR | stat.S_IWUSR
                     if self._os_user is not None and os.name == "posix":
                         from shutil import chown
+
                         chown(path, group=self._os_user.group)
                         mode |= stat.S_IRGRP
                     os.chmod(path, mode)

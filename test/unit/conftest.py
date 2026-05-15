@@ -20,10 +20,10 @@ from deadline.job_attachments.models import (
 )
 from openjd.model._v1 import (
     JobParameterValues,
-    ParameterValue,
     SpecificationRevision,
     TemplateSpecificationVersion,
 )
+from openjd.model._v1.types import JobParameterValue
 from openjd.model._v1.v2023_09 import (
     CommandString,
     ArgString,
@@ -388,7 +388,7 @@ def job_attachment_details(
 @pytest.fixture
 def job_parameters() -> JobParameterValues:
     """The job's parameters"""
-    return dict[str, ParameterValue]()
+    return dict[str, JobParameterValue]()
 
 
 @pytest.fixture

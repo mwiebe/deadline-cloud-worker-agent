@@ -8,12 +8,15 @@ import os
 
 from openjd.model._v1 import (
     JobParameterValues,
-    ParameterValue,
-    ParameterValueType,
     SpecificationRevision,
-    TaskParameterType,
     TemplateSpecificationVersion,
     UnsupportedSchema,
+)
+from openjd.model._v1.types import (
+    JobParameterType,
+    JobParameterValue,
+    TaskParameterType,
+    TaskParameterValue,
 )
 from openjd.sessions._v1 import (
     PathFormat,
@@ -38,31 +41,72 @@ from .job_entity_type import JobEntityType
 from .validation import Field, validate_object
 
 
-def parameters_from_api_response(
+def job_parameters_from_api_response(
     params: dict[
         str,
-        StringParameter | PathParameter | IntParameter | FloatParameter | ChunkIntParameter | str,
+        StringParameter | PathParameter | IntParameter | FloatParameter,
     ],
-) -> dict[str, ParameterValue]:
-    result = dict[str, ParameterValue]()
+) -> dict[str, JobParameterValue]:
+    """Convert a service-side BatchGetJobEntity job-parameter dict into
+    a ``dict[str, JobParameterValue]``.
+
+    Job parameters are scalar values typed as ``STRING``, ``PATH``,
+    ``INT``, or ``FLOAT``. Chunked-integer values are task-only and
+    must use :func:`task_parameters_from_api_response` instead.
+    """
+    result: dict[str, JobParameterValue] = {}
     for name, value in params.items():
         if "string" in value:
             value = cast(StringParameter, value)
-            param_value = ParameterValue(type=ParameterValueType.STRING, value=value["string"])
+            param_value = JobParameterValue(type=JobParameterType.STRING, value=value["string"])
         elif "int" in value:
             value = cast(IntParameter, value)
-            param_value = ParameterValue(type=ParameterValueType.INT, value=value["int"])
+            param_value = JobParameterValue(type=JobParameterType.INT, value=value["int"])
         elif "float" in value:
             value = cast(FloatParameter, value)
-            param_value = ParameterValue(type=ParameterValueType.FLOAT, value=value["float"])
+            param_value = JobParameterValue(type=JobParameterType.FLOAT, value=value["float"])
         elif "path" in value:
             value = cast(PathParameter, value)
-            param_value = ParameterValue(type=ParameterValueType.PATH, value=value["path"])
+            param_value = JobParameterValue(type=JobParameterType.PATH, value=value["path"])
+        else:
+            raise ValueError(f"Job parameter {name} -- unknown form in API response: {str(value)}")
+        result[name] = param_value
+    return result
+
+
+def task_parameters_from_api_response(
+    params: dict[
+        str,
+        StringParameter | PathParameter | IntParameter | FloatParameter | ChunkIntParameter,
+    ],
+) -> dict[str, TaskParameterValue]:
+    """Convert a service-side TaskRunAction task-parameter dict into
+    a ``dict[str, TaskParameterValue]``.
+
+    Task parameters share ``STRING`` / ``PATH`` / ``INT`` / ``FLOAT``
+    with job parameters and additionally support ``CHUNK_INT``.
+    """
+    result: dict[str, TaskParameterValue] = {}
+    for name, value in params.items():
+        if "string" in value:
+            value = cast(StringParameter, value)
+            param_value = TaskParameterValue(type=TaskParameterType.STRING, value=value["string"])
+        elif "int" in value:
+            value = cast(IntParameter, value)
+            param_value = TaskParameterValue(type=TaskParameterType.INT, value=value["int"])
+        elif "float" in value:
+            value = cast(FloatParameter, value)
+            param_value = TaskParameterValue(type=TaskParameterType.FLOAT, value=value["float"])
+        elif "path" in value:
+            value = cast(PathParameter, value)
+            param_value = TaskParameterValue(type=TaskParameterType.PATH, value=value["path"])
         elif "chunkInt" in value:
             value = cast(ChunkIntParameter, value)
-            param_value = ParameterValue(type=TaskParameterType.CHUNK_INT, value=value["chunkInt"])
+            param_value = TaskParameterValue(
+                type=TaskParameterType.CHUNK_INT, value=value["chunkInt"]
+            )
         else:
-            raise ValueError(f"Parameter {name} -- unknown form in API response: {str(value)}")
+            raise ValueError(f"Task parameter {name} -- unknown form in API response: {str(value)}")
         result[name] = param_value
     return result
 
@@ -243,7 +287,7 @@ class JobDetails:
         """
 
         job_parameters_data: dict = job_details_data.get("parameters", {})
-        job_parameters = parameters_from_api_response(job_parameters_data)
+        job_parameters = job_parameters_from_api_response(job_parameters_data)
         path_mapping_rules: list[OPENJDPathMappingRule] = []
         path_mapping_rules_data = job_details_data.get("pathMappingRules", None)
         if path_mapping_rules_data:

@@ -11,7 +11,6 @@ associated with the queue, the script prompts you to pick one.
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import time
@@ -115,19 +114,34 @@ configuration script is set to download and install them on worker startup.
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--profile",
-                        help="AWS profile name (default: from 'deadline config get defaults.aws_profile_name')")
-    parser.add_argument("--farm-id",
-                        help="Deadline Cloud farm ID (default: from 'deadline config get defaults.farm_id')")
-    parser.add_argument("--queue-id",
-                        help="Deadline Cloud queue ID (default: from 'deadline config get defaults.queue_id')")
-    parser.add_argument("--fleet-id",
-                        help="Deadline Cloud fleet ID (default: auto-detected from queue's associated fleets)")
-    parser.add_argument("--s3-prefix", default=DEFAULT_S3_PREFIX,
-                        help=f"S3 key prefix for uploaded wheels (default: %(default)s)")
-    parser.add_argument("--os", choices=["linux", "windows"], default=None,
-                        help="Target OS family — selects the correct wheel and host config template "
-                             "(default: auto-detected from wheels/ contents, or 'linux' if both present)")
+    parser.add_argument(
+        "--profile",
+        help="AWS profile name (default: from 'deadline config get defaults.aws_profile_name')",
+    )
+    parser.add_argument(
+        "--farm-id",
+        help="Deadline Cloud farm ID (default: from 'deadline config get defaults.farm_id')",
+    )
+    parser.add_argument(
+        "--queue-id",
+        help="Deadline Cloud queue ID (default: from 'deadline config get defaults.queue_id')",
+    )
+    parser.add_argument(
+        "--fleet-id",
+        help="Deadline Cloud fleet ID (default: auto-detected from queue's associated fleets)",
+    )
+    parser.add_argument(
+        "--s3-prefix",
+        default=DEFAULT_S3_PREFIX,
+        help="S3 key prefix for uploaded wheels (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--os",
+        choices=["linux", "windows"],
+        default=None,
+        help="Target OS family — selects the correct wheel and host config template "
+        "(default: auto-detected from wheels/ contents, or 'linux' if both present)",
+    )
     args = parser.parse_args()
 
     # Auto-detect target OS from available wheels if not specified
@@ -136,8 +150,7 @@ configuration script is set to download and install them on worker startup.
     else:
         wheels_dir = SCRIPT_DIR / "wheels"
         has_win = any(wheels_dir.glob("openjd_model-*win*.whl"))
-        has_linux = any(w for w in wheels_dir.glob("openjd_model-*.whl")
-                        if "win" not in w.name)
+        has_linux = any(w for w in wheels_dir.glob("openjd_model-*.whl") if "win" not in w.name)
         if has_win and not has_linux:
             target_os = "WINDOWS"
         elif has_linux and not has_win:
@@ -145,8 +158,10 @@ configuration script is set to download and install them on worker startup.
         elif has_win and has_linux:
             target_os = "LINUX"  # both present, default to linux
         else:
-            sys.exit("Cannot auto-detect target OS: no openjd_model wheel found in wheels/. "
-                     "Pass --os explicitly.")
+            sys.exit(
+                "Cannot auto-detect target OS: no openjd_model wheel found in wheels/. "
+                "Pass --os explicitly."
+            )
         print(f"Auto-detected target OS: {target_os} (from wheels/ contents)")
 
     # Fill defaults from deadline CLI
@@ -194,36 +209,57 @@ configuration script is set to download and install them on worker startup.
     role_name = role_arn.rsplit("/", 1)[-1]
 
     policy_name = "CustomWheelsS3"
-    policy_doc = json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Effect": "Allow",
-            "Action": ["s3:GetObject", "s3:ListBucket"],
-            "Resource": [
-                f"arn:aws:s3:::{s3_bucket}",
-                f"arn:aws:s3:::{s3_bucket}/{s3_prefix}/*",
+    policy_doc = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:GetObject", "s3:ListBucket"],
+                    "Resource": [
+                        f"arn:aws:s3:::{s3_bucket}",
+                        f"arn:aws:s3:::{s3_bucket}/{s3_prefix}/*",
+                    ],
+                }
             ],
-        }],
-    })
+        }
+    )
 
     try:
         existing = subprocess.run(
-            ["aws", "iam", "get-role-policy",
-             "--role-name", role_name, "--policy-name", policy_name,
-             "--profile", profile],
-            capture_output=True, text=True,
+            [
+                "aws",
+                "iam",
+                "get-role-policy",
+                "--role-name",
+                role_name,
+                "--policy-name",
+                policy_name,
+                "--profile",
+                profile,
+            ],
+            capture_output=True,
+            text=True,
         )
         if existing.returncode == 0:
             print(f"IAM policy '{policy_name}' already exists on role {role_name}")
         else:
             print(f"Adding IAM inline policy '{policy_name}' to role {role_name}...")
-            run([
-                "aws", "iam", "put-role-policy",
-                "--role-name", role_name,
-                "--policy-name", policy_name,
-                "--policy-document", policy_doc,
-                "--profile", profile,
-            ])
+            run(
+                [
+                    "aws",
+                    "iam",
+                    "put-role-policy",
+                    "--role-name",
+                    role_name,
+                    "--policy-name",
+                    policy_name,
+                    "--policy-document",
+                    policy_doc,
+                    "--profile",
+                    profile,
+                ]
+            )
             print(f"IAM policy '{policy_name}' added successfully.")
     except SystemExit:
         print(f"""
@@ -259,8 +295,10 @@ has the following permissions (e.g. as an inline policy named '{policy_name}'):
         # Fallback: if only one wheel exists, use it
         if len(all_model) == 1:
             return all_model[0].name
-        sys.exit(f"Cannot determine which openjd_model wheel to use for {target_os}. "
-                 f"Found: {[w.name for w in all_model]}")
+        sys.exit(
+            f"Cannot determine which openjd_model wheel to use for {target_os}. "
+            f"Found: {[w.name for w in all_model]}"
+        )
 
     model_whl_name = find_model_whl()
     sessions_whl_name = find_whl("openjd_sessions-*.whl")
@@ -271,7 +309,17 @@ has the following permissions (e.g. as an inline policy named '{policy_name}'):
 
     print(f"Uploading wheels to s3://{s3_bucket}/{s3_prefix}/")
     for whl_name in wheels_to_upload:
-        run(["aws", "s3", "cp", str(wheels_dir / whl_name), f"s3://{s3_bucket}/{s3_prefix}/", "--profile", profile])
+        run(
+            [
+                "aws",
+                "s3",
+                "cp",
+                str(wheels_dir / whl_name),
+                f"s3://{s3_bucket}/{s3_prefix}/",
+                "--profile",
+                profile,
+            ]
+        )
 
     whl_names = {
         "__MODEL_WHL__": model_whl_name,
@@ -297,26 +345,46 @@ has the following permissions (e.g. as an inline policy named '{policy_name}'):
     smf_config = fleet_info["configuration"]["serviceManagedEc2"]
     updated_config = json.dumps({"serviceManagedEc2": smf_config})
 
-    run([
-        "aws", "deadline", "update-fleet",
-        "--farm-id", farm_id, "--fleet-id", fleet_id,
-        "--configuration", updated_config,
-        "--host-configuration", json.dumps({"scriptBody": host_script}),
-        "--max-worker-count", "0",
-        "--profile", profile,
-    ])
+    run(
+        [
+            "aws",
+            "deadline",
+            "update-fleet",
+            "--farm-id",
+            farm_id,
+            "--fleet-id",
+            fleet_id,
+            "--configuration",
+            updated_config,
+            "--host-configuration",
+            json.dumps({"scriptBody": host_script}),
+            "--max-worker-count",
+            "0",
+            "--profile",
+            profile,
+        ]
+    )
 
     # Cycle fleet
     print("Waiting for fleet to become active...")
     wait_for_fleet_active(profile, farm_id, fleet_id)
 
     max_workers = str(fleet_info.get("maxWorkerCount", 5))
-    run([
-        "aws", "deadline", "update-fleet",
-        "--farm-id", farm_id, "--fleet-id", fleet_id,
-        "--max-worker-count", max_workers,
-        "--profile", profile,
-    ])
+    run(
+        [
+            "aws",
+            "deadline",
+            "update-fleet",
+            "--farm-id",
+            farm_id,
+            "--fleet-id",
+            fleet_id,
+            "--max-worker-count",
+            max_workers,
+            "--profile",
+            profile,
+        ]
+    )
 
     print(f"Scaled back to {max_workers}. Workers will install custom wheels on startup.")
 

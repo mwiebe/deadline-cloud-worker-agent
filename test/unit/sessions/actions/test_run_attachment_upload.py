@@ -13,7 +13,7 @@ import pytest
 import deadline_worker_agent.sessions.actions as actions_module
 from deadline_worker_agent.sessions.job_entities.job_details import JobDetails
 from openjd.sessions._v1 import SessionUser
-from openjd.model._v1 import ParameterValue
+from openjd.model._v1.types import TaskParameterValue
 from openjd.model._v1.v2023_09 import (
     EmbeddedFileTypes as EmbeddedFileTypes_2023_09,
     CommandString,
@@ -168,7 +168,7 @@ class TestStart:
 
         session._run_attachment_sync_task.assert_called_once_with(
             step_script=action._step_script,
-            task_parameter_values=dict[str, ParameterValue](),
+            task_parameter_values=dict[str, TaskParameterValue](),
             os_env_vars={
                 "DEADLINE_SESSIONACTION_ID": action_id,
                 "DEADLINE_STEP_ID": step_id,
@@ -235,7 +235,7 @@ class TestStart:
 
         session._run_attachment_sync_task.assert_called_once_with(
             step_script=action._step_script,
-            task_parameter_values=dict[str, ParameterValue](),
+            task_parameter_values=dict[str, TaskParameterValue](),
             os_env_vars={
                 "DEADLINE_SESSIONACTION_ID": action_id,
                 "DEADLINE_STEP_ID": step_id,
