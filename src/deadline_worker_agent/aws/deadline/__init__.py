@@ -779,9 +779,32 @@ def update_worker_schedule(
                 else:
                     # Unknown exception_reason. Treat as unrecoverable
                     raise DeadlineRequestUnrecoverableError(e) from None
+            elif code == "ValidationException":
+                # The service rejected our heartbeat for a sessionaction
+                # because it has already finalized that action server-side
+                # (typically an EnvEnter that exceeded the service's
+                # implicit timeout, or whose owning agent process died and
+                # the new agent's first heartbeat arrived too late). The
+                # error message looks like:
+                #   Cannot update inactive sessionaction-... because the
+                #   provided state UnknownSessionActionStatus(0) is
+                #   different from the final state FAILED
+                # Treat that as conditionally recoverable: drop the
+                # already-finalized action(s) from the local map and
+                # let the next sync poll for fresh assignments instead
+                # of tearing the agent down (and triggering an SCM
+                # auto-restart that races yet more actions).
+                msg = e.response.get("Error", {}).get("Message", "") or str(e)
+                if (
+                    "Cannot update inactive sessionaction" in msg
+                    or "provided state UnknownSessionActionStatus" in msg
+                ):
+                    raise DeadlineRequestConditionallyRecoverableError(e)
+                # Other validation errors are still unrecoverable.
+                raise DeadlineRequestUnrecoverableError(e) from None
             else:
                 # The error is unrecoverable. One of:
-                #  AccessDeniedException, ValidationException, or something unexpected
+                #  AccessDeniedException, or something unexpected
                 raise DeadlineRequestUnrecoverableError(e) from None
 
             if interrupt_event:

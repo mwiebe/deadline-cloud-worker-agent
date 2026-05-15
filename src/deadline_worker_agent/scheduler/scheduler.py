@@ -457,7 +457,23 @@ class WorkerScheduler:
         # Raises: DeadlineRequestInterrupted, DeadlineRequestWorkerNotFoundError,
         # DeadlineRequestWorkerOfflineError, and DeadlineRequestUnrecoverableError
         #  - Let these go to the caller
-        response = update_worker_schedule(**request)
+        try:
+            response = update_worker_schedule(**request)
+        except DeadlineRequestConditionallyRecoverableError as e:
+            # Service finalized one or more sessionactions ahead of us
+            # (typically EnvEnter timeouts under load, or stale
+            # heartbeats after an SCM-initiated agent restart).
+            # Drop the now-finalized actions from the local map and
+            # carry on; the next sync will pull the actual session
+            # state down from the service.
+            logger.warning(
+                "UpdateWorkerSchedule rejected as inactive: %s. "
+                "Dropping local action state and continuing.",
+                str(e),
+            )
+            with self._action_update_lock:
+                self._action_updates_map.clear()
+            return self._INITIAL_POLL_INTERVAL.total_seconds()
 
         commit_completed_actions()
 
