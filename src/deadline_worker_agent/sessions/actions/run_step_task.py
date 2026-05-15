@@ -3,7 +3,7 @@
 from __future__ import annotations
 from concurrent.futures import Executor
 
-from openjd.model.v1 import TaskParameterSet
+from openjd.model._v1 import TaskParameterSet
 
 from ...log_messages import SessionActionLogKind
 from .openjd_action import OpenjdAction

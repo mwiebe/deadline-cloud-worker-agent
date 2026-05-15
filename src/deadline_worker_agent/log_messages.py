@@ -11,7 +11,7 @@ from pathlib import Path
 from getpass import getuser
 
 from ._version import __version__
-from openjd.model.v1 import version as openjd_model_version
+from openjd.model._v1 import version as openjd_model_version
 from openjd.sessions.v1 import version as openjd_sessions_version
 from openjd.sessions.v1 import LogContent
 from openjd.sessions.v1 import LOG as openjd_logger

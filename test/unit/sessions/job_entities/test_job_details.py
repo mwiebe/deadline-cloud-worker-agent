@@ -9,7 +9,7 @@ from deadline_worker_agent.sessions.job_entities.job_details import (
     JobRunAsWindowsUser,
 )
 from deadline_worker_agent.api_models import JobDetailsData
-from openjd.model.v1 import SpecificationRevision
+from openjd.model._v1 import SpecificationRevision
 from openjd.sessions.v1 import PosixSessionUser, SessionUser, WindowsSessionUser
 import os
 

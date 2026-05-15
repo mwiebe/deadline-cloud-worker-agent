@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from .job_entities import JobAttachmentDetails, JobDetails
     from .attachment_models import WorkerManifestProperties
 
-from openjd.model.v1 import (
+from openjd.model._v1 import (
     TaskParameterSet,
     RevisionExtensions,
     SpecificationRevision,

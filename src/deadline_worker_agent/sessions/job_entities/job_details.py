@@ -6,7 +6,7 @@ from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, cast
 import os
 
-from openjd.model.v1 import (
+from openjd.model._v1 import (
     JobParameterValues,
     ParameterValue,
     ParameterValueType,

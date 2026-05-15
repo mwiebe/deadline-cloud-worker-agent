@@ -6,13 +6,13 @@ from unittest.mock import MagicMock, Mock, patch
 from collections import OrderedDict
 
 from deadline.job_attachments.models import JobAttachmentsFileSystem
-from openjd.model.v1 import (
+from openjd.model._v1 import (
     ParameterValue,
     ParameterValueType,
     TemplateSpecificationVersion,
     UnsupportedSchema,
 )
-from openjd.model.v1.v2023_09 import (
+from openjd.model._v1.v2023_09 import (
     Environment,
     EnvironmentScript,
     EnvironmentActions,

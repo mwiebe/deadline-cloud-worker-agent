@@ -14,8 +14,8 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from openjd.model.v1 import ParameterValue
-from openjd.model.v1.v2023_09 import (
+from openjd.model._v1 import ParameterValue
+from openjd.model._v1.v2023_09 import (
     Action,
     Environment,
     EnvironmentActions,

@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-from openjd.model.v1 import TemplateSpecificationVersion, UnsupportedSchema
+from openjd.model._v1 import TemplateSpecificationVersion, UnsupportedSchema
 from openjd._openjd_rs import decode_environment_template_dict, create_environment
 
 from ...api_models import EnvironmentDetailsData

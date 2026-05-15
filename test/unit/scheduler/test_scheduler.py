@@ -51,7 +51,7 @@ from deadline_worker_agent.aws.deadline import (
     DeadlineRequestInterrupted,
 )
 from deadline_worker_agent.file_system_operations import FileSystemPermissionEnum
-from openjd.model.v1 import SpecificationRevision
+from openjd.model._v1 import SpecificationRevision
 
 
 @pytest.fixture(autouse=True)

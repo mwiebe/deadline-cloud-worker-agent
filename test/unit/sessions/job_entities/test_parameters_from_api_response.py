@@ -2,7 +2,7 @@
 
 import pytest
 
-from openjd.model.v1 import ParameterValueType
+from openjd.model._v1 import ParameterValueType
 
 from deadline_worker_agent.sessions.job_entities.job_details import parameters_from_api_response
 

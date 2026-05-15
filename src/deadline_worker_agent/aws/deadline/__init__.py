@@ -13,7 +13,7 @@ from botocore.exceptions import ClientError
 
 from deadline.job_attachments import version as deadline_job_attachments_version
 from deadline.job_attachments.progress_tracker import SummaryStatistics
-from openjd.model.v1 import version as openjd_model_version
+from openjd.model._v1 import version as openjd_model_version
 from openjd.sessions.v1 import version as openjd_sessions_version
 
 from ..._version import __version__ as version  # noqa

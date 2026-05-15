@@ -8,7 +8,7 @@ from logging import getLogger
 from threading import Event
 from typing import Any, Callable, Iterable, Generic, Literal, TypeVar, TYPE_CHECKING, cast
 
-from openjd.model.v1 import UnsupportedSchema
+from openjd.model._v1 import UnsupportedSchema
 from openjd.sessions.v1 import ActionState, ActionStatus
 
 from ..api_models import (
