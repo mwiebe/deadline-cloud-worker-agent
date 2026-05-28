@@ -5,7 +5,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Literal, TYPE_CHECKING
 from openjd.model._v1 import validate_attribute_capability_name, validate_amount_capability_name
-from openjd.model._v1 import STANDARD_ATTRIBUTE_CAPABILITIES, STANDARD_AMOUNT_CAPABILITIES
 import logging
 import platform
 import shutil
@@ -202,9 +201,7 @@ class AmountCapabilityName(CapabilityName):
     def _validate_amount_capability_name(cls, value: Any) -> str:
         if not isinstance(value, str):
             raise ValueError("Capability names must be strings.")
-        validate_amount_capability_name(
-            capability_name=value, standard_capabilities=list(STANDARD_AMOUNT_CAPABILITIES.keys())
-        )
+        validate_amount_capability_name(value)
         return value
 
 
@@ -218,10 +215,7 @@ class AttributeCapabilityName(CapabilityName):
     def _validate_attribute_capability_name(cls, value: Any) -> str:
         if not isinstance(value, str):
             raise ValueError("Capability names must be strings.")
-        validate_attribute_capability_name(
-            capability_name=value,
-            standard_capabilities=list(STANDARD_ATTRIBUTE_CAPABILITIES.keys()),
-        )
+        validate_attribute_capability_name(value)
         return value
 
 

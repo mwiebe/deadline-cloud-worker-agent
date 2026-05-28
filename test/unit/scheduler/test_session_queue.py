@@ -6,23 +6,19 @@ from unittest.mock import MagicMock, Mock, patch
 from collections import OrderedDict
 
 from deadline.job_attachments.models import JobAttachmentsFileSystem
-from openjd.model._v1 import (
-    TemplateSpecificationVersion,
-    UnsupportedSchema,
-)
+from openjd.model._v1.errors import UnsupportedSchema
 from openjd.model._v1.types import (
     TaskParameterType,
     TaskParameterValue,
 )
-from openjd.model._v1.v2023_09 import (
-    Environment,
-    EnvironmentScript,
-    EnvironmentActions,
+from openjd.expr import FormatString
+from openjd.model._v1.template import (
     Action,
-    StepScript,
+    Environment,
+    EnvironmentActions,
+    EnvironmentScript,
     StepActions,
-    StepTemplate,
-    CommandString,
+    StepScript,
 )
 import pytest
 
@@ -68,11 +64,14 @@ from deadline_worker_agent.api_models import (
 
 
 _TEST_ENVIRONMENT_SCRIPT = EnvironmentScript(
-    actions=EnvironmentActions(onEnter=Action(command=CommandString("test")))
+    actions=EnvironmentActions(onEnter=Action(command=FormatString("test")))
 )
-_TEST_STEP_TEMPLATE = StepTemplate(
+# ``StepTemplate`` is a Rust pyclass that doesn't expose a ``#[new]``
+# constructor. Tests that need a stand-in for ``StepDetails.step_template``
+# use a ``MagicMock`` carrying the relevant ``script`` attribute.
+_TEST_STEP_TEMPLATE = MagicMock(
     name="TestStep",
-    script=StepScript(actions=StepActions(onRun=Action(command=CommandString("test.exe")))),
+    script=StepScript(actions=StepActions(onRun=Action(command=FormatString("test.exe")))),
 )
 
 
@@ -391,7 +390,11 @@ class TestSessionActionQueueDequeue:
         session_queue._actions = [queue_entry]
         session_queue._actions_by_id[queue_entry.definition["sessionActionId"]] = queue_entry
 
-        inner_error = UnsupportedSchema(TemplateSpecificationVersion.UNDEFINED.value)
+        # ``UnsupportedSchema`` is raised with a schema-version
+        # string. The legacy pure-Python enum had an ``UNDEFINED``
+        # member; the Rust enum doesn't, so use a literal version
+        # string that doesn't match any supported revision.
+        inner_error = UnsupportedSchema("undefined-schema")
         job_entity_mock = MagicMock()
         job_entity_mock.environment_details.side_effect = inner_error
         job_entity_mock.step_details.side_effect = inner_error

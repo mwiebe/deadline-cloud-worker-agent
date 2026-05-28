@@ -14,10 +14,7 @@ import deadline_worker_agent.sessions.actions as actions_module
 from deadline_worker_agent.sessions.job_entities.job_details import JobDetails
 from openjd.sessions._v1 import SessionUser
 from openjd.model._v1.types import TaskParameterValue
-from openjd.model._v1.v2023_09 import (
-    EmbeddedFileTypes as EmbeddedFileTypes_2023_09,
-    CommandString,
-)
+from openjd.expr import FormatString
 
 import deadline_worker_agent.sessions.session as session_mod
 from deadline.job_attachments.models import JobAttachmentS3Settings
@@ -147,7 +144,7 @@ class TestStart:
 
         # THEN - Verify the step script is created with new format
         assert action._step_script is not None
-        assert action._step_script.actions.onRun.command == CommandString(python_path)
+        assert action._step_script.actions.onRun.command == FormatString(python_path)
 
         # Check that the arguments use the new format (no embedded file, direct script path)
         args = action._step_script.actions.onRun.args
@@ -164,7 +161,7 @@ class TestStart:
         assert len(embedded_files) == 1
         embedded_file = embedded_files[0]
         assert embedded_file.name == "WorkerManifestProperties"
-        assert embedded_file.type == EmbeddedFileTypes_2023_09.TEXT
+        assert embedded_file.type == "TEXT"
 
         session._run_attachment_sync_task.assert_called_once_with(
             step_script=action._step_script,

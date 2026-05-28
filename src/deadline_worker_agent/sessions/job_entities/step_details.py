@@ -4,7 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from openjd.model._v1 import TemplateSpecificationVersion, UnsupportedSchema
+from openjd.model._v1 import TemplateSpecificationVersion
+from openjd.model._v1.errors import UnsupportedSchema
 from openjd._openjd_rs import deserialize_step
 
 from ...api_models import StepDetailsData

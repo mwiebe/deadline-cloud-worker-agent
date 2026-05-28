@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # build-smf-deploy.sh — Build a self-contained SMF deployment directory.
 #
 # Usage:

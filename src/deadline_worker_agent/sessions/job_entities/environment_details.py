@@ -4,8 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-from openjd.model._v1 import TemplateSpecificationVersion, UnsupportedSchema
-from openjd._openjd_rs import decode_environment_template_dict, create_environment
+from openjd.model._v1 import TemplateSpecificationVersion, decode_environment_template
+from openjd.model._v1.errors import UnsupportedSchema
+from openjd._openjd_rs import create_environment
 
 from ...api_models import EnvironmentDetailsData
 from .job_entity_type import JobEntityType
@@ -29,7 +30,7 @@ class EnvironmentDetails:
             TemplateSpecificationVersion.JOBTEMPLATE_v2023_09,
             TemplateSpecificationVersion.ENVIRONMENT_v2023_09,
         ):
-            env_template = decode_environment_template_dict(
+            env_template = decode_environment_template(
                 {
                     "specificationVersion": "environment-2023-09",
                     "environment": environment_details_data["template"],

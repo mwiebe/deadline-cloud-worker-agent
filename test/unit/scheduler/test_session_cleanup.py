@@ -17,15 +17,6 @@ from deadline_worker_agent.scheduler.session_cleanup import (
 import deadline_worker_agent.scheduler.session_cleanup as session_cleanup_mod
 
 
-class FakeSessionUser(SessionUser):
-    def __init__(self, user: str):
-        self.user = user
-
-    @staticmethod
-    def _get_process_user() -> str:
-        return ""
-
-
 class TestSessionUserCleanupManager:
     @pytest.fixture
     def manager(self) -> SessionUserCleanupManager:

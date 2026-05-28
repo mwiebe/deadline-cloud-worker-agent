@@ -19,15 +19,11 @@ from deadline.job_attachments.models import (
     PathFormat,
 )
 from openjd.model._v1 import (
-    JobParameterValues,
     SpecificationRevision,
     TemplateSpecificationVersion,
 )
+from openjd.expr import FormatString
 from openjd.model._v1.types import JobParameterValue
-from openjd.model._v1.v2023_09 import (
-    CommandString,
-    ArgString,
-)
 from openjd.sessions._v1 import (
     PathMappingRule,
     SessionUser,
@@ -190,8 +186,17 @@ def logs_client() -> MagicMock:
 
 @pytest.fixture(autouse=True)
 def patch_windows_session_user_validate():
-    with patch.object(WindowsSessionUser, "_validate_username_password"):
-        yield
+    """Bypass WindowsSessionUser credential validation during tests.
+
+    The legacy pure-Python `_validate_username_password` static method is
+    gone in the Rust-backed `openjd.sessions._v1.WindowsSessionUser`, so
+    the `patch.object(...)` of yore raises `AttributeError`. We rely
+    instead on `__new__` patches in the small set of tests that
+    actually need to construct `WindowsSessionUser` instances on Linux
+    runners. This autouse fixture is now a no-op kept for fixture
+    ordering and to localize the docstring change.
+    """
+    yield
 
 
 @pytest.fixture()
@@ -209,12 +214,12 @@ def job_run_as_user_overrides(job_user: SessionUser) -> JobsRunAsUserOverride:
 
 @pytest.fixture
 def command():
-    return CommandString("echo")
+    return FormatString("echo")
 
 
 @pytest.fixture
 def on_run_args():
-    return [ArgString("on run")]
+    return [FormatString("on run")]
 
 
 @pytest.fixture
@@ -386,7 +391,7 @@ def job_attachment_details(
 
 
 @pytest.fixture
-def job_parameters() -> JobParameterValues:
+def job_parameters() -> dict[str, JobParameterValue]:
     """The job's parameters"""
     return dict[str, JobParameterValue]()
 
@@ -409,7 +414,7 @@ def path_mapping_rules() -> list[PathMappingRule] | None:
 @pytest.fixture
 def job_details(
     queue_job_attachment_settings: JobAttachmentSettings,
-    job_parameters: JobParameterValues,
+    job_parameters: dict[str, JobParameterValue],
     log_group_name: str,
     job_run_as_user: JobRunAsUser,
     path_mapping_rules: list[PathMappingRule],

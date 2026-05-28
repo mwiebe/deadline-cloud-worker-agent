@@ -38,11 +38,7 @@ if TYPE_CHECKING:
     from .job_entities import JobAttachmentDetails, JobDetails
     from .attachment_models import WorkerManifestProperties
 
-from openjd.model._v1 import (
-    TaskParameterSet,
-    RevisionExtensions,
-    SpecificationRevision,
-)
+from openjd.model._v1.types import ModelExtension, ModelProfile, TaskParameterValue
 
 from openjd.sessions._v1 import (
     ActionState,
@@ -204,16 +200,23 @@ class Session:
             callback=openjd_session_action_callback,
             os_env_vars=self._env,
             session_root_directory=session_root_dir,
-            # Currently for simplicity request that our session allow all extensions
-            # This does not obey the spec.  It should be changed at a later date to the list of requested
-            # extensions once those are returned by BatchGetJobEntity
-            revision_extensions=RevisionExtensions(
-                spec_rev=SpecificationRevision.v2023_09,
-                supported_extensions=[
-                    "TASK_CHUNKING",
-                    "REDACTED_ENV_VARS",
-                    "EXPR",
-                    "FEATURE_BUNDLE_1",
+            # Profile carrying the spec revision from BatchGetJobEntity and
+            # the set of extensions this worker enables. Drives session-time
+            # behaviour like redaction (gated on REDACTED_ENV_VARS) and
+            # expression-function availability.
+            #
+            # The extensions list is currently hardcoded — the worker enables
+            # every known extension regardless of what the job template
+            # requested. This does not obey the spec; it should be narrowed
+            # to the list returned by BatchGetJobEntity once that field is
+            # wired through.
+            profile=ModelProfile(
+                revision=self._job_details.schema_version,
+                extensions=[
+                    ModelExtension.TASK_CHUNKING,
+                    ModelExtension.REDACTED_ENV_VARS,
+                    ModelExtension.EXPR,
+                    ModelExtension.FEATURE_BUNDLE_1,
                 ],
             ),
         )
@@ -1191,7 +1194,7 @@ class Session:
         self,
         *,
         step_script: StepScriptModel,
-        task_parameter_values: TaskParameterSet,
+        task_parameter_values: dict[str, TaskParameterValue],
         os_env_vars: Optional[dict[str, str]] = None,
         log_task_banner: bool = True,
     ) -> None:
@@ -1206,7 +1209,7 @@ class Session:
         self,
         *,
         step_script: StepScriptModel,
-        task_parameter_values: TaskParameterSet,
+        task_parameter_values: dict[str, TaskParameterValue],
         os_env_vars: Optional[dict[str, str]] = None,
         log_task_banner: bool = True,
     ) -> None:

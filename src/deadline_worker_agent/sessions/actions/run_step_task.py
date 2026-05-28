@@ -4,7 +4,7 @@ from __future__ import annotations
 from concurrent.futures import Executor
 from typing import TYPE_CHECKING, Any, Optional
 
-from openjd.model._v1 import TaskParameterSet
+from openjd.model._v1.types import TaskParameterValue
 
 from ...log_messages import SessionActionLogKind
 from .openjd_action import OpenjdAction
@@ -28,13 +28,13 @@ class RunStepTaskAction(OpenjdAction):
         The environment details
     task_id : Optional[str]
         The unique task identifier
-    task_parameter_values : TaskParameterSet
+    task_parameter_values : dict[str, TaskParameterValue]
         The task parameter values
     """
 
     task_id: Optional[str]
     _details: StepDetails
-    _task_parameter_values: TaskParameterSet
+    _task_parameter_values: dict[str, TaskParameterValue]
 
     def __init__(
         self,
@@ -42,7 +42,7 @@ class RunStepTaskAction(OpenjdAction):
         id: str,
         details: StepDetails,
         task_id: Optional[str] = None,
-        task_parameter_values: TaskParameterSet,
+        task_parameter_values: dict[str, TaskParameterValue],
     ) -> None:
         super(RunStepTaskAction, self).__init__(
             id=id, action_log_kind=SessionActionLogKind.TASK_RUN, step_id=details.step_id

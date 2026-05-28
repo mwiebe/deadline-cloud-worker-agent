@@ -13,16 +13,7 @@ from openjd.model._v1.types import (
     JobParameterType,
     JobParameterValue,
 )
-from openjd.model._v1.v2023_09 import (
-    Action,
-    Environment,
-    EnvironmentActions,
-    EnvironmentScript,
-    StepActions,
-    StepScript,
-    StepTemplate,
-    CommandString,
-)
+from openjd.expr import FormatString
 from openjd.sessions._v1 import PosixSessionUser, WindowsSessionUser, SessionUser
 
 
@@ -49,11 +40,9 @@ from deadline_worker_agent.api_models import (
 )
 from deadline_worker_agent.config import JobsRunAsUserOverride
 from deadline_worker_agent.sessions.job_entities import (
-    EnvironmentDetails,
     JobAttachmentDetails,
     JobDetails,
     JobEntities,
-    StepDetails,
 )
 from deadline_worker_agent.sessions.job_entities.job_details import (
     JobRunAsUser,
@@ -113,7 +102,7 @@ def job_details_with_user(
         posix_user = cast(PosixSessionUser, os_user)
         return JobDetails(
             log_group_name="/aws/deadline/queue-0000",
-            schema_version=SpecificationRevision("2023-09"),
+            schema_version=SpecificationRevision.v2023_09,
             job_run_as_user=JobRunAsUser(posix=posix_user),
             parameters=job_details_parameters,
         )
@@ -121,7 +110,7 @@ def job_details_with_user(
         windows_user = cast(WindowsSessionUser, os_user)
         return JobDetails(
             log_group_name="/aws/deadline/queue-0000",
-            schema_version=SpecificationRevision("2023-09"),
+            schema_version=SpecificationRevision.v2023_09,
             job_run_as_user=JobRunAsUser(windows=windows_user),
             parameters=job_details_parameters,
         )
@@ -437,7 +426,7 @@ class TestDetails:
                     "script": {
                         "actions": {
                             "onEnter": {
-                                "command": CommandString("test"),
+                                "command": "test",
                             },
                         }
                     },
@@ -448,14 +437,6 @@ class TestDetails:
             "entities": [details_boto],
             "errors": [],
         }
-        expected_details = EnvironmentDetails(
-            environment=Environment(
-                name=env_name,
-                script=EnvironmentScript(
-                    actions=EnvironmentActions(onEnter=Action(command=CommandString("test")))
-                ),
-            )
-        )
         deadline_client.batch_get_job_entity.return_value = response
         job_entities = JobEntities(
             farm_id="farm-id",
@@ -471,7 +452,12 @@ class TestDetails:
         details = job_entities.environment_details(environment_id=environment_id)
 
         # THEN
-        assert details == expected_details
+        # Spot-check key fields rather than full-object equality —
+        # the Rust pyclasses don't currently implement structural
+        # ``__eq__``, so dataclass equality on ``EnvironmentDetails``
+        # would compare the inner ``Environment`` by identity.
+        assert details.environment.name == env_name
+        assert details.environment.script.actions.on_enter.command == FormatString("test")
 
     def test_job_attachment_details(
         self, deadline_client: MagicMock, windows_credentials_resolver: MagicMock, job_id: str
@@ -524,7 +510,7 @@ class TestDetails:
                 template={
                     "actions": {
                         "onRun": {
-                            "command": CommandString("test.exe"),
+                            "command": "test.exe",
                         },
                     }
                 },
@@ -536,16 +522,7 @@ class TestDetails:
             "errors": [],
         }
 
-        expected_details = StepDetails(
-            step_template=StepTemplate(
-                name="Placeholder",
-                script=StepScript(
-                    actions=StepActions(onRun=Action(command=CommandString("test.exe")))
-                ),
-            ),
-            step_id=step_id,
-            dependencies=[dependency],
-        )
+        expected_step_id = step_id
         deadline_client.batch_get_job_entity.return_value = response
         job_entities = JobEntities(
             farm_id="farm-id",
@@ -561,7 +538,13 @@ class TestDetails:
         details = job_entities.step_details(step_id=step_id)
 
         # THEN
-        assert details == expected_details
+        # Spot-check fields rather than full-object equality — the
+        # Rust pyclasses behind ``StepDetails.step_template`` don't
+        # currently implement structural ``__eq__``.
+        assert details.step_id == expected_step_id
+        assert details.dependencies == [dependency]
+        assert details.step_template.name == "Placeholder"
+        assert details.step_template.script.actions.on_run.command == FormatString("test.exe")
 
     def test_step_details(
         self, deadline_client: MagicMock, windows_credentials_resolver: MagicMock, job_id: str
@@ -579,7 +562,7 @@ class TestDetails:
                     "script": {
                         "actions": {
                             "onRun": {
-                                "command": CommandString("test.exe"),
+                                "command": "test.exe",
                             },
                         },
                     },
@@ -592,16 +575,7 @@ class TestDetails:
             "errors": [],
         }
 
-        expected_details = StepDetails(
-            step_template=StepTemplate(
-                name="Test",
-                script=StepScript(
-                    actions=StepActions(onRun=Action(command=CommandString("test.exe")))
-                ),
-            ),
-            step_id=step_id,
-            dependencies=[dependency],
-        )
+        expected_step_id = step_id
         deadline_client.batch_get_job_entity.return_value = response
         job_entities = JobEntities(
             farm_id="farm-id",
@@ -617,7 +591,12 @@ class TestDetails:
         details = job_entities.step_details(step_id=step_id)
 
         # THEN
-        assert details == expected_details
+        # Spot-check fields rather than full-object equality — see
+        # backwards-compat test for rationale.
+        assert details.step_id == expected_step_id
+        assert details.dependencies == [dependency]
+        assert details.step_template.name == "Test"
+        assert details.step_template.script.actions.on_run.command == FormatString("test.exe")
 
 
 class TestCaching:
@@ -782,7 +761,7 @@ class TestCaching:
                 "script": {
                     "actions": {
                         "onEnter": {
-                            "command": CommandString("test"),
+                            "command": "test",
                         },
                     }
                 },

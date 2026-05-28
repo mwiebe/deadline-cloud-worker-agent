@@ -41,15 +41,12 @@ from openjd.sessions._v1 import (
     PosixSessionUser,
     WindowsSessionUser,
 )
-from openjd.model._v1.v2023_09 import (
-    EmbeddedFileTypes as EmbeddedFileTypes_2023_09,
-    EmbeddedFileText as EmbeddedFileText_2023_09,
-    Action as Action_2023_09,
-    StepScript as StepScript_2023_09,
-    StepActions as StepActions_2023_09,
-    CommandString,
-    ArgString,
-    DataString,
+from openjd.expr import FormatString
+from openjd.model._v1.template import (
+    Action,
+    EmbeddedFile,
+    StepActions,
+    StepScript,
 )
 from openjd.model._v1.types import TaskParameterValue
 
@@ -73,7 +70,7 @@ class AttachmentDownloadAction(OpenjdAction):
 
     _job_attachment_details: Optional[JobAttachmentDetails]
     _step_details: Optional[StepDetails]
-    _step_script: Optional[StepScript_2023_09]
+    _step_script: Optional[StepScript]
 
     def __init__(
         self,
@@ -120,21 +117,21 @@ class AttachmentDownloadAction(OpenjdAction):
 
         worker_props_json = json.dumps(worker_props_data, indent=2)
         embedded_files.append(
-            EmbeddedFileText_2023_09(
+            EmbeddedFile(
                 name="WorkerManifestProperties",
-                type=EmbeddedFileTypes_2023_09.TEXT,
-                data=DataString(worker_props_json),
+                type="TEXT",
+                data=FormatString(worker_props_json),
             )
         )
 
         # Build the command arguments
         download_script_path = Path(__file__).parent / "scripts" / "attachment_download.py"
         args = [
-            ArgString(str(download_script_path)),
-            ArgString("-s3"),
-            ArgString(s3_settings.to_s3_root_uri()),
-            ArgString("-wp"),
-            ArgString("{{ Task.File.WorkerManifestProperties }}"),
+            FormatString(str(download_script_path)),
+            FormatString("-s3"),
+            FormatString(s3_settings.to_s3_root_uri()),
+            FormatString("-wp"),
+            FormatString("{{ Task.File.WorkerManifestProperties }}"),
         ]
 
         executable_path = Path(sys.executable)
@@ -142,10 +139,10 @@ class AttachmentDownloadAction(OpenjdAction):
             "pythonservice.exe", "python.exe"
         )
 
-        self._step_script = StepScript_2023_09(
-            actions=StepActions_2023_09(
-                onRun=Action_2023_09(
-                    command=CommandString(str(python_path)),
+        self._step_script = StepScript(
+            actions=StepActions(
+                onRun=Action(
+                    command=FormatString(str(python_path)),
                     args=args,
                 )
             ),
@@ -295,16 +292,7 @@ class AttachmentDownloadAction(OpenjdAction):
         # Extend the session's path mapping rules with job attachment mappings.
         # The session handles sorting by source path length internally.
         new_rules = [OpenjdPathMapping.from_dict(r) for r in job_attachment_path_mappings]
-        if hasattr(session.openjd_session, "extend_path_mapping_rules"):
-            session.openjd_session.extend_path_mapping_rules(new_rules)
-        else:
-            if session.openjd_session._path_mapping_rules:
-                session.openjd_session._path_mapping_rules.extend(new_rules)
-            else:
-                session.openjd_session._path_mapping_rules = new_rules
-            session.openjd_session._path_mapping_rules.sort(
-                key=lambda rule: -len(rule.source_path.parts)
-            )
+        session.openjd_session.extend_path_mapping_rules(new_rules)
 
         manifest_paths_by_root = session._asset_sync._check_and_write_local_manifests(
             merged_manifests_by_root=merged_manifests_by_root,
@@ -352,11 +340,11 @@ class AttachmentDownloadAction(OpenjdAction):
             # for the session to proceed to the next action
             # LINUX and VIRTUAL only
             session._run_attachment_sync_task(
-                step_script=StepScript_2023_09(
-                    actions=StepActions_2023_09(
-                        onRun=Action_2023_09(
-                            command=CommandString("echo"),
-                            args=[ArgString("Job Attachments mode VIRTUAL, VFS launched")],
+                step_script=StepScript(
+                    actions=StepActions(
+                        onRun=Action(
+                            command=FormatString("echo"),
+                            args=[FormatString("Job Attachments mode VIRTUAL, VFS launched")],
                         )
                     ),
                 ),

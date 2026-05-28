@@ -7,11 +7,10 @@ from typing import Any, cast
 import os
 
 from openjd.model._v1 import (
-    JobParameterValues,
     SpecificationRevision,
     TemplateSpecificationVersion,
-    UnsupportedSchema,
 )
+from openjd.model._v1.errors import UnsupportedSchema
 from openjd.model._v1.types import (
     JobParameterType,
     JobParameterValue,
@@ -259,7 +258,7 @@ class JobDetails:
     job_attachment_settings: JobAttachmentSettings | None = None
     """The job attachment settings of the job's queue"""
 
-    parameters: JobParameterValues = field(default_factory=dict)
+    parameters: dict[str, JobParameterValue] = field(default_factory=dict)
     """The job's parameters"""
 
     job_run_as_user: JobRunAsUser | None = None

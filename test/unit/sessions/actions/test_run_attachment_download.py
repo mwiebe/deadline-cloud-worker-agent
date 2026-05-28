@@ -15,15 +15,12 @@ import deadline_worker_agent.sessions.actions as actions_module
 from deadline_worker_agent.sessions.job_entities.job_details import JobDetails
 from openjd.sessions._v1 import SessionUser, PosixSessionUser
 from openjd.model._v1.types import TaskParameterValue
-from openjd.model._v1.v2023_09 import (
-    EmbeddedFileTypes as EmbeddedFileTypes_2023_09,
-    EmbeddedFileText as EmbeddedFileText_2023_09,
-    Action as Action_2023_09,
-    StepScript as StepScript_2023_09,
-    StepActions as StepActions_2023_09,
-    ArgString,
-    CommandString,
-    DataString,
+from openjd.expr import FormatString
+from openjd.model._v1.template import (
+    Action,
+    EmbeddedFile,
+    StepActions,
+    StepScript,
 )
 
 import deadline_worker_agent.sessions.session as session_mod
@@ -208,24 +205,28 @@ class TestStart:
         download_script_path = (
             Path(os.path.dirname(actions_module.__file__)) / "scripts" / "attachment_download.py"
         )
-        expected_script = StepScript_2023_09(
-            actions=StepActions_2023_09(
-                onRun=Action_2023_09(
-                    command=CommandString(python_path),
+        expected_script = StepScript(
+            actions=StepActions(
+                onRun=Action(
+                    command=FormatString(python_path),
                     args=[
-                        ArgString(str(download_script_path)),
-                        ArgString("-s3"),
-                        ArgString(s3_settings.to_s3_root_uri()),
-                        ArgString("-wp"),
-                        ArgString("{{ Task.File.WorkerManifestProperties }}"),
+                        FormatString(str(download_script_path)),
+                        FormatString("-s3"),
+                        FormatString(s3_settings.to_s3_root_uri()),
+                        FormatString("-wp"),
+                        FormatString("{{ Task.File.WorkerManifestProperties }}"),
                     ],
                 )
             ),
             embeddedFiles=[
-                EmbeddedFileText_2023_09(
+                EmbeddedFile(
                     name="WorkerManifestProperties",
-                    type=EmbeddedFileTypes_2023_09.TEXT,
-                    data=DataString(ANY),  # JSON data will vary
+                    type="TEXT",
+                    # JSON data will vary at runtime; use a placeholder
+                    # so the constructor accepts a real ``FormatString``
+                    # value. The test asserts only on the embedded
+                    # file ``name`` field below, not on ``data``.
+                    data=FormatString("<placeholder>"),
                 ),
             ],
         )
@@ -379,17 +380,17 @@ class TestSetStepScript:
         assert action._step_script is not None
 
         # Check command and args
-        assert action._step_script.actions.onRun.command == CommandString(python_path)
+        assert action._step_script.actions.onRun.command == FormatString(python_path)
         # The actual path is calculated from the actions module location
         download_script_path = (
             Path(actions_module.__file__).parent / "scripts" / "attachment_download.py"
         )
         expected_args = [
-            ArgString(str(download_script_path)),
-            ArgString("-s3"),
-            ArgString(s3_settings.to_s3_root_uri()),
-            ArgString("-wp"),
-            ArgString("{{ Task.File.WorkerManifestProperties }}"),
+            FormatString(str(download_script_path)),
+            FormatString("-s3"),
+            FormatString(s3_settings.to_s3_root_uri()),
+            FormatString("-wp"),
+            FormatString("{{ Task.File.WorkerManifestProperties }}"),
         ]
         assert action._step_script.actions.onRun.args == expected_args
 
@@ -400,10 +401,10 @@ class TestSetStepScript:
         # Check WorkerManifestProperties file
         worker_props_file = action._step_script.embeddedFiles[0]
         assert worker_props_file.name == "WorkerManifestProperties"
-        assert worker_props_file.type == EmbeddedFileTypes_2023_09.TEXT
+        assert worker_props_file.type == "TEXT"
 
         # Verify the worker properties JSON contains expected data
-        worker_props_data = json.loads(worker_props_file.data)
+        worker_props_data = json.loads(str(worker_props_file.data))
         assert len(worker_props_data) == 1
         assert worker_props_data[0]["localRootPath"] == "/local/root"
         assert worker_props_data[0]["localManifestPaths"] == ["/local/manifest.json"]
@@ -438,7 +439,7 @@ class TestSetStepScript:
         worker_props_file = action._step_script.embeddedFiles[0]
         assert worker_props_file.name == "WorkerManifestProperties"
 
-        worker_props_data = json.loads(worker_props_file.data)
+        worker_props_data = json.loads(str(worker_props_file.data))
         assert worker_props_data == []
 
 

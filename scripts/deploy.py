@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 """deploy.py — Upload wheels and configure an SMF fleet to use them.
 
 Usage:

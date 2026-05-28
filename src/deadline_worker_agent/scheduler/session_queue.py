@@ -8,7 +8,7 @@ from logging import getLogger
 from threading import Event
 from typing import Any, Callable, Iterable, Generic, Literal, TypeVar, TYPE_CHECKING, cast
 
-from openjd.model._v1 import UnsupportedSchema
+from openjd.model._v1.errors import UnsupportedSchema
 from openjd.sessions._v1 import ActionState, ActionStatus
 
 from ..api_models import (
@@ -417,11 +417,11 @@ class SessionActionQueue:
                 except UnsupportedSchema as e:
                     if action_type == "ENV_ENTER":
                         raise JobEntityUnsupportedSchemaError(
-                            action_id, SessionActionLogKind.ENV_ENTER, e._version
+                            action_id, SessionActionLogKind.ENV_ENTER, e.args[0]
                         )
                     else:
                         raise JobEntityUnsupportedSchemaError(
-                            action_id, SessionActionLogKind.ENV_EXIT, e._version
+                            action_id, SessionActionLogKind.ENV_EXIT, e.args[0]
                         )
                 except (ValueError, RuntimeError) as e:
                     if action_type == "ENV_ENTER":
@@ -456,7 +456,7 @@ class SessionActionQueue:
                     raise JobEntityUnsupportedSchemaError(
                         action_id,
                         SessionActionLogKind.TASK_RUN,
-                        e._version,
+                        e.args[0],
                         step_id=step_id,
                         task_id=task_id,
                     ) from e
@@ -502,7 +502,7 @@ class SessionActionQueue:
                         job_attachment_details = self._job_entities.job_attachment_details()
                     except UnsupportedSchema as e:
                         raise JobEntityUnsupportedSchemaError(
-                            action_id, SessionActionLogKind.JA_SYNC_INPUT, e._version
+                            action_id, SessionActionLogKind.JA_SYNC_INPUT, e.args[0]
                         ) from e
                     except ValueError as e:
                         raise JobAttachmentDetailsError(
@@ -526,7 +526,7 @@ class SessionActionQueue:
                         raise JobEntityUnsupportedSchemaError(
                             action_id,
                             SessionActionLogKind.JA_DEP_SYNC,
-                            e._version,
+                            e.args[0],
                             step_id=action_definition["stepId"],
                         ) from e
                     except ValueError as e:

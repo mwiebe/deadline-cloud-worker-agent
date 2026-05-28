@@ -686,9 +686,14 @@ class TestSchedulerSync:
             pytest.param(0, 0, id="Zero"),
             pytest.param(0x7FFFFFFF, 0x7FFFFFFF, id="maxint"),
             pytest.param(-2147483648, -2147483648, id="minint_decimal"),
-            pytest.param(0x80000000, -2147483648, id="minint_hex"),
-            pytest.param(0xFFFD0000, -196608, id="out-of-range-32bit"),
-            pytest.param(0xFFFFFFFD0000, -196608, id="out-of-range-big"),
+            # The Rust-backed `ActionStatus.exit_code` is `Option<i32>`, so
+            # values outside ±2^31 can no longer reach the worker. The
+            # legacy parametrize cases for `0x80000000` and the two
+            # out-of-range-32bit cases were verifying the worker's
+            # `_exit_code_to_32bit_signed` wrapping behaviour, but the
+            # binding rejects those inputs with `OverflowError` before
+            # they get there. The wrapping logic is kept on the worker
+            # side for defence-in-depth.
         ],
     )
     def test_updated_action_to_boto_exitcode(
@@ -1292,7 +1297,16 @@ class TestCreateNewSessions:
         mock_session.assert_called_once()
         assert mock_session.call_args.kwargs["session_root_dir"] == session_root_dir
 
-    class MockSessionUser(SessionUser):
+    class MockSessionUser:
+        """Stand-in for a ``SessionUser``-shaped object in user-selection
+        tests. ``WorkerScheduler._determine_user_for_session`` picks one
+        of ``posix``/``windows``/``override`` by identity and returns it,
+        so a non-``SessionUser`` placeholder with a ``user`` attribute
+        is sufficient. The actual ``SessionUser`` Rust pyclass is not
+        Python-subclassable; the ``# type: ignore[arg-type]`` annotations
+        below acknowledge that we're passing this mock where a real
+        ``PosixSessionUser`` / ``WindowsSessionUser`` is typed."""
+
         user: str
 
         def __init__(self, user) -> None:
@@ -1300,10 +1314,6 @@ class TestCreateNewSessions:
 
         def __eq__(self, other) -> bool:
             return self.user == other.user
-
-        @staticmethod
-        def _get_process_user() -> str:
-            return "user"
 
     @pytest.mark.parametrize(
         "host_is_posix,job_run_as_user,job_run_as_user_override,expected_result,expected_exception",

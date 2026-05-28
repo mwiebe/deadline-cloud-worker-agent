@@ -1,3 +1,4 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 set -xeuo pipefail
 
 S3_BUCKET="__S3_BUCKET__"
