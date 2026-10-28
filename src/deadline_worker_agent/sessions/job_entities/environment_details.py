@@ -9,7 +9,8 @@ from openjd.model.v2023_09 import Environment as Environment_2023_09
 from openjd.sessions import EnvironmentModel
 
 from ...api_models import EnvironmentDetailsData
-from .._extensions import resolve_supported_extensions
+from .._extensions import ENV_PARAMS_EXTENSION, resolve_supported_extensions
+from ..runtime._abc import RawEnvironment
 from .job_entity_type import JobEntityType
 from .validation import Field, validate_object
 
@@ -21,8 +22,15 @@ class EnvironmentDetails:
     ENTITY_TYPE = JobEntityType.ENVIRONMENT_DETAILS.value
     """The JobEntityType handled by this class"""
 
-    environment: EnvironmentModel
-    """The environment"""
+    environment: EnvironmentModel | RawEnvironment
+    """The environment.
+
+    A v2023_09 pydantic model, except for jobs that declare the ENV_PARAMS
+    extension: those keep the OpenJD wire-form dict (RawEnvironment), because
+    the legacy pydantic model does not implement ENV_PARAMS and rejects its
+    keys. The Rust session runtime decodes the dict natively; the Python
+    runtime refuses it.
+    """
 
     resolved_symbol_table_json: str | None = None
     """Pre-resolved symbol table JSON from the service, forwarded to the Rust session runtime."""
@@ -50,15 +58,22 @@ class EnvironmentDetails:
 
         schema_version = TemplateSpecificationVersion(environment_details_data["schemaVersion"])
 
+        environment: EnvironmentModel | RawEnvironment
         if schema_version in (
             TemplateSpecificationVersion.JOBTEMPLATE_v2023_09,
             TemplateSpecificationVersion.ENVIRONMENT_v2023_09,
         ):
-            environment = parse_model(
-                model=Environment_2023_09,
-                obj=environment_details_data["template"],
-                supported_extensions=resolve_supported_extensions(environment_details_data),
-            )
+            supported_extensions = resolve_supported_extensions(environment_details_data)
+            if ENV_PARAMS_EXTENSION in supported_extensions:
+                # Validated by the Rust session runtime's native decode when the
+                # environment is entered (deserialize_step), not here.
+                environment = dict(environment_details_data["template"])
+            else:
+                environment = parse_model(
+                    model=Environment_2023_09,
+                    obj=environment_details_data["template"],
+                    supported_extensions=supported_extensions,
+                )
         else:
             raise UnsupportedSchema(schema_version.value)
 

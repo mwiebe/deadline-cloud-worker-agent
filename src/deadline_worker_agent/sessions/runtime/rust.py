@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from openjd._openjd_rs import deserialize_step
 from openjd.expr import PathFormat, PathMappingRule as RustPathMappingRule, SerializedSymbolTable
+from openjd.model._v1.job import EnvironmentParameterValues
 from openjd.model._v1.types import (
     JobParameterType,
     JobParameterValue,
@@ -44,7 +45,8 @@ from deadline_worker_agent.file_system_operations import (
 )
 
 from . import SessionRuntime, SessionRuntimeConfig
-from ._abc import ResolvedSymbolTableError, convert_runtime_crashes
+from ._abc import RawEnvironment, ResolvedSymbolTableError, convert_runtime_crashes
+from ._env_params import split_env_params
 
 if TYPE_CHECKING:
     from openjd.sessions import (
@@ -255,6 +257,29 @@ def _parse_resolved_symtab(json_str: str | None) -> Any:
         ) from e
 
 
+def _parse_env_param_values(
+    json_str: str | None, *, environment: str
+) -> Optional[EnvironmentParameterValues]:
+    """Build the session's ENV_PARAMS values for *environment* from the split-out entries.
+
+    Returns None when the service served no ``Env.Param.*`` entries. The values
+    are tagged with the Job Template document (``document=None``): the service
+    sends per-Step values only for Job Template Environments. Attached
+    Environment Templates (Queue Environments) are not in this prototype.
+    """
+    if json_str is None:
+        return None
+    try:
+        values = SerializedSymbolTable.from_json_str(json_str)
+    except Exception as e:
+        logger.error("Failed to parse Env.Param values from resolvedSymbolTable: %s", e)
+        raise ResolvedSymbolTableError(
+            "The service served Env.Param values this worker could not parse "
+            f"({type(e).__name__}); the environment's parameters cannot be bound"
+        ) from e
+    return EnvironmentParameterValues(environment=environment, values=values)
+
+
 class RustSessionRuntime(SessionRuntime):
     """SessionRuntime backed by openjd.sessions._v1 (Rust implementation)."""
 
@@ -312,7 +337,7 @@ class RustSessionRuntime(SessionRuntime):
     def enter_environment(
         self,
         *,
-        environment: EnvironmentModel,
+        environment: EnvironmentModel | RawEnvironment,
         identifier: Optional[EnvironmentIdentifier] = None,
         os_env_vars: Optional[dict[str, str]] = None,
         resolved_symbol_table_json: str | None = None,
@@ -337,18 +362,39 @@ class RustSessionRuntime(SessionRuntime):
         # is what lets a variables-only environment referencing step-scope `let`
         # enter. exclude_none=True is required, not cosmetic: the Rust decoder
         # rejects explicit nulls (OpenJD treats absent and null as equivalent).
+        #
+        # An ENV_PARAMS job's environment arrives already in wire form (a
+        # RawEnvironment): the pydantic model does not implement ENV_PARAMS, so
+        # EnvironmentDetails skips it and only this native decode runs.
+        environment_dict = (
+            environment
+            if isinstance(environment, dict)
+            else environment.model_dump(mode="json", by_alias=True, exclude_none=True)
+        )
         native_environment = deserialize_step(
             {
                 "name": "Placeholder",
                 "script": {"actions": {"onRun": {"command": "true"}}},
-                "stepEnvironments": [
-                    environment.model_dump(mode="json", by_alias=True, exclude_none=True)
-                ],
+                "stepEnvironments": [environment_dict],
             }
         ).step_environments[0]
 
+        # ENV_PARAMS: the service sends the Step's effective values for this
+        # environment as Env.Param.<name> entries of its resolved table. The
+        # session takes them as `parameters` and binds Env.Param.* (PATH
+        # path-mapped) and Env.RawParam.* itself, so split them out of the
+        # table it seeds the action with.
+        split = split_env_params(resolved_symbol_table_json)
+
         # Parse the pre-resolved symbol table if the service provided one.
-        resolved_symtab = _parse_resolved_symtab(resolved_symbol_table_json)
+        resolved_symtab = _parse_resolved_symtab(split.base_json)
+        parameters = _parse_env_param_values(
+            split.env_param_values_json, environment=native_environment.name
+        )
+
+        # `parameters` is passed only when there are values, so the call for an
+        # environment without ENV_PARAMS is unchanged.
+        extra: dict[str, Any] = {} if parameters is None else {"parameters": parameters}
 
         # step_name is a Python-session input; the Rust session receives
         # equivalent step context via resolved_symtab.
@@ -357,6 +403,7 @@ class RustSessionRuntime(SessionRuntime):
             identifier=identifier,
             os_env_vars=os_env_vars,
             resolved_symtab=resolved_symtab,
+            **extra,
         )
 
     @convert_runtime_crashes
@@ -373,8 +420,13 @@ class RustSessionRuntime(SessionRuntime):
         # with the same stored table and swallow the same failure, so onExit
         # would never run. See the Python adapter's copy for the full reasoning;
         # the two are kept in lockstep on purpose.
+        #
+        # The session kept the environment's ENV_PARAMS values from enter and
+        # binds them for onExit, so only the base table is passed here.
         try:
-            resolved_symtab = _parse_resolved_symtab(resolved_symbol_table_json)
+            resolved_symtab = _parse_resolved_symtab(
+                split_env_params(resolved_symbol_table_json).base_json
+            )
         except ResolvedSymbolTableError:
             resolved_symtab = None
 

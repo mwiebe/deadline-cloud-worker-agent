@@ -6,7 +6,16 @@ from typing import Any, Mapping
 
 from openjd.model.v2023_09 import ExtensionName
 
-__all__ = ["RUNTIME_CAPABILITY_EXTENSIONS", "resolve_supported_extensions", "session_extensions"]
+__all__ = [
+    "ENV_PARAMS_EXTENSION",
+    "RUNTIME_CAPABILITY_EXTENSIONS",
+    "resolve_supported_extensions",
+    "session_extensions",
+]
+
+ENV_PARAMS_EXTENSION = "ENV_PARAMS"
+"""OpenJD RFC 0010 environment parameters. Implemented only by openjd-rs, so the
+legacy v2023_09 ExtensionName enum does not list it."""
 
 # The full set of known extension names, passed to the session runtime at
 # construction time. This is NOT a parse-site fallback — it is a runtime
@@ -17,7 +26,13 @@ __all__ = ["RUNTIME_CAPABILITY_EXTENSIONS", "resolve_supported_extensions", "ses
 # list disables the runtime feature, so this tuple represents the ceiling of
 # extensions the worker runtime implements. Per-entity template validation is
 # governed separately by resolve_supported_extensions.
-RUNTIME_CAPABILITY_EXTENSIONS: tuple[str, ...] = tuple(v.value for v in ExtensionName)
+#
+# ENV_PARAMS is appended because the legacy enum does not know it. The Rust
+# runtime enables it; the Python runtime's RevisionExtensions accepts unknown
+# names, and its enter_environment refuses an ENV_PARAMS environment.
+RUNTIME_CAPABILITY_EXTENSIONS: tuple[str, ...] = tuple(v.value for v in ExtensionName) + (
+    ENV_PARAMS_EXTENSION,
+)
 
 # REDACTED_ENV_VARS controls env-var redaction in session logs. It must always
 # be enabled regardless of the job's extension declaration — disabling it would
