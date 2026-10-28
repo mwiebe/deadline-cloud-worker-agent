@@ -10,7 +10,14 @@ from typing import TYPE_CHECKING, Any, Optional
 from openjd.model import RevisionExtensions, SpecificationRevision
 from openjd.sessions import Session as OpenJDSession
 
-from . import ResolvedSymbolTableError, SessionRuntime, SessionRuntimeConfig
+from . import (
+    EnvironmentParametersUnsupportedError,
+    RawEnvironment,
+    ResolvedSymbolTableError,
+    SessionRuntime,
+    SessionRuntimeConfig,
+)
+from ._env_params import has_env_params
 
 if TYPE_CHECKING:
     from openjd.expr import SerializedSymbolTable
@@ -135,7 +142,7 @@ class PythonSessionRuntime(SessionRuntime):
     def enter_environment(
         self,
         *,
-        environment: EnvironmentModel,
+        environment: EnvironmentModel | RawEnvironment,
         identifier: Optional[EnvironmentIdentifier] = None,
         os_env_vars: Optional[dict[str, str]] = None,
         resolved_symbol_table_json: str | None = None,
@@ -147,6 +154,19 @@ class PythonSessionRuntime(SessionRuntime):
         # has nothing to inject them into. Step-scope `let` values reach this
         # session through resolved_symtab instead. The parameter exists only to
         # keep the runtime interface uniform with the Rust adapter.
+        #
+        # ENV_PARAMS exists only in openjd-rs. Refuse it before anything runs:
+        # entering anyway would fail later on an undefined Env.Param symbol, or
+        # worse, run with it unexpanded. The service selects the Rust runtime
+        # (runtimeHint=rust) for such jobs; this fires only when the worker is
+        # pinned to the Python runtime.
+        if isinstance(environment, dict) or has_env_params(resolved_symbol_table_json):
+            name = environment.get("name") if isinstance(environment, dict) else environment.name
+            raise EnvironmentParametersUnsupportedError(
+                f"Environment {name!r} uses the ENV_PARAMS extension, which only the Rust "
+                "session runtime implements. Run the worker with --session-runtime "
+                "service-selected or rust."
+            )
         #
         # Parse the pre-resolved symbol table if the service provided one. The
         # v0 session seeds it as the base of its per-action symbol table, the
