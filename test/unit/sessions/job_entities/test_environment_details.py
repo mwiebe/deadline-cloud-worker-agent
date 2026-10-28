@@ -138,6 +138,7 @@ class TestFromBotoWrapActions:
             cast(EnvironmentDetailsData, environment_details_data)
         )
 
+        assert not isinstance(result.environment, dict)
         assert result.environment.name == "WrapEnv"
         assert result.environment.script is not None
         actions = result.environment.script.actions

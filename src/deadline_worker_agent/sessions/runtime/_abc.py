@@ -19,6 +19,14 @@ if TYPE_CHECKING:
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
+RawEnvironment = dict[str, Any]
+"""An Environment kept in its OpenJD wire form instead of a v2023_09 pydantic model.
+
+Environment entities of jobs that declare the ENV_PARAMS extension arrive in this
+form: the legacy pydantic model does not implement ENV_PARAMS, so the worker does
+not parse them with it. Only the Rust session runtime accepts it.
+"""
+
 
 class SessionRuntimeCrashError(Exception):
     """A non-Exception error from a session runtime (e.g. a Rust panic crossing
@@ -43,6 +51,16 @@ class ResolvedSymbolTableError(Exception):
 
     The message must stay free of payload contents -- it is reported to the
     service as the action's fail message. Full detail goes to the agent log.
+    """
+
+
+class EnvironmentParametersUnsupportedError(Exception):
+    """The selected session runtime cannot enter an ENV_PARAMS environment.
+
+    ENV_PARAMS (OpenJD RFC 0010) is implemented only by openjd-rs, so only the
+    Rust session runtime can bind ``Env.Param.*`` values. The Python runtime
+    raises this before anything runs, so the action fails with a clear cause
+    instead of an "undefined symbol" error from the template.
     """
 
 
@@ -73,7 +91,7 @@ class SessionRuntime(ABC):
     def enter_environment(
         self,
         *,
-        environment: EnvironmentModel,
+        environment: EnvironmentModel | RawEnvironment,
         identifier: Optional[EnvironmentIdentifier] = None,
         os_env_vars: Optional[dict[str, str]] = None,
         resolved_symbol_table_json: str | None = None,
@@ -87,6 +105,11 @@ class SessionRuntime(ABC):
         environments). A runtime that lifts the environment into a standalone
         document and re-decodes it uses them so references to those names
         resolve; a runtime that never lifts ignores them.
+
+        ``environment`` is a ``RawEnvironment`` for jobs that declare ENV_PARAMS.
+        Such an environment's effective parameter values arrive as
+        ``Env.Param.<name>`` entries in ``resolved_symbol_table_json``. A runtime
+        that cannot bind them raises EnvironmentParametersUnsupportedError.
         """
         ...
 
