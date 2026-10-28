@@ -62,6 +62,7 @@ from ..aws.deadline import record_runtime_failure_telemetry_event
 from ._extensions import session_extensions
 from .runtime._abc import SessionRuntimeCrashError
 from .runtime import (
+    RawEnvironment,
     SessionRuntimeKind,
     SessionRuntime,
     SessionRuntimeConfig,
@@ -876,7 +877,7 @@ class Session:
         self,
         *,
         job_env_id: str,
-        environment: EnvironmentModel,
+        environment: EnvironmentModel | RawEnvironment,
         os_env_vars: Optional[dict[str, str]] = None,
         resolved_symbol_table_json: str | None = None,
         step_name: str | None = None,
