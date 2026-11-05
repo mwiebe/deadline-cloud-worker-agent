@@ -36,6 +36,7 @@ from openjd.sessions._v1 import (
     ActionStatus as RustActionStatus,
     PosixSessionUser as RustPosixSessionUser,
     Session as OpenJDRustSession,
+    SessionRuntimeError,
     WindowsSessionUser as RustWindowsSessionUser,
 )
 
@@ -321,17 +322,26 @@ class RustSessionRuntime(SessionRuntime):
         def _rust_action_callback(session_id: str, status: RustActionStatus) -> None:
             v0_callback(session_id, _to_v0_action_status(status))
 
-        self._session = OpenJDRustSession(
-            session_id=config.session_id,
-            job_parameter_values=_to_rust_job_parameter_values(config.job_parameter_values),
-            path_mapping_rules=_to_rust_path_mapping_rules(config.path_mapping_rules),
-            retain_working_dir=config.retain_working_dir,
-            user=_to_rust_session_user(config.user),
-            callback=_rust_action_callback,
-            os_env_vars=config.os_env_vars,
-            session_root_directory=config.session_root_directory,
-            profile=ModelProfile(revision=revision, extensions=extensions),
-        )
+        # The Rust session validates the path mapping rules (openjd-expr 0.13:
+        # absolute source paths, size limits) and raises SessionRuntimeError
+        # for a bad rule.
+        # Re-raise it as ValueError: the scheduler fails a session's actions
+        # visibly for ValueError and keeps running, but lets other exception
+        # types propagate.
+        try:
+            self._session = OpenJDRustSession(
+                session_id=config.session_id,
+                job_parameter_values=_to_rust_job_parameter_values(config.job_parameter_values),
+                path_mapping_rules=_to_rust_path_mapping_rules(config.path_mapping_rules),
+                retain_working_dir=config.retain_working_dir,
+                user=_to_rust_session_user(config.user),
+                callback=_rust_action_callback,
+                os_env_vars=config.os_env_vars,
+                session_root_directory=config.session_root_directory,
+                profile=ModelProfile(revision=revision, extensions=extensions),
+            )
+        except SessionRuntimeError as e:
+            raise ValueError(str(e)) from e
 
     @convert_runtime_crashes
     def enter_environment(
@@ -561,11 +571,22 @@ class RustSessionRuntime(SessionRuntime):
 
     @convert_runtime_crashes
     def extend_path_mapping_rules(self, rules: list[PathMappingRule]) -> None:
-        # The Rust session exposes this as a public method and sorts the rules
-        # by source-path length internally, so no pre-sorting is needed here.
-        self._session.extend_path_mapping_rules(
-            [_to_rust_path_mapping_rule(rule) for rule in rules]
-        )
+        # The Rust session keeps the rules in the order given. The matching rule
+        # whose source path has the most path names applies, and between rules
+        # for the same location the one given last wins. So a job attachment
+        # rule added here overrides a storage profile rule from the session's
+        # construction for the same source path (the legacy Python session
+        # keeps the first one instead). That matches where the attachment
+        # files are: the download writes them under the session directory.
+        #
+        # A bad rule raises SessionRuntimeError and leaves the rules unchanged.
+        # Re-raise it as ValueError, so the action fails with the message.
+        try:
+            self._session.extend_path_mapping_rules(
+                [_to_rust_path_mapping_rule(rule) for rule in rules]
+            )
+        except SessionRuntimeError as e:
+            raise ValueError(str(e)) from e
 
     @convert_runtime_crashes
     def cancel_action(
