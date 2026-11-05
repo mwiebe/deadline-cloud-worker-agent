@@ -19,6 +19,7 @@ the Step's effective values as ``Env.Param.<name>`` entries of the entity's
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import shlex
@@ -205,5 +206,137 @@ class TestEnvParamsEndToEnd:
                     executor=Mock(),  # type: ignore[arg-type]
                 )
             assert not (out / "enter.txt").exists()
+        finally:
+            runtime.cleanup()
+
+
+def _config_with_rules(
+    session_root: Path, rules: list[PathMappingRule], callback: Any = None
+) -> SessionRuntimeConfig:
+    config = _config(session_root, ("ENV_PARAMS", "EXPR"))
+    changes: dict[str, Any] = {"path_mapping_rules": rules}
+    if callback is not None:
+        changes["action_callback"] = callback
+    return dataclasses.replace(config, **changes)
+
+
+def _rule(source: str, destination: str) -> PathMappingRule:
+    return PathMappingRule(
+        source_path_format=PathFormat.POSIX,
+        source_path=Path(source),
+        destination_path=Path(destination),
+    )
+
+
+class TestRustRuntimeOnBindingsC0333380:
+    """Behavior of the Rust session that changed with the bindings built on
+    openjd-rs-ep c0333380 (openjd-expr 0.13), as the worker sees it."""
+
+    def test_invalid_rule_at_construction_is_a_value_error(self, tmp_path: Path) -> None:
+        """The scheduler fails a session's actions for ValueError and keeps running,
+        so a rule the Rust session rejects must arrive as ValueError."""
+        with pytest.raises(ValueError, match="must be an absolute POSIX path") as excinfo:
+            RustSessionRuntime(
+                _config_with_rules(tmp_path / "sessions", [_rule("relative/src", "/local/dst")])
+            )
+        assert type(excinfo.value) is ValueError
+        assert excinfo.value.__cause__ is not None
+
+    def test_invalid_added_rule_is_a_value_error_and_keeps_the_rules(self, tmp_path: Path) -> None:
+        """A bad job attachment rule fails the action with the message, and the
+        session keeps mapping with the rules it had."""
+        out = tmp_path / "out"
+        out.mkdir()
+        runtime = RustSessionRuntime(
+            _config_with_rules(tmp_path / "sessions", [_rule("/mnt/src", "/local/dst")])
+        )
+        session: Any = _EnvOnlySession(runtime)
+        try:
+            with pytest.raises(ValueError, match="path mapping rule 1: source_path 'relative'"):
+                runtime.extend_path_mapping_rules([_rule("relative", "/local/ja")])
+            EnterEnvironmentAction(
+                id="sessionaction-1", job_env_id=_ENV_ID, details=_details(out, table=_TABLE)
+            ).start(session=session, executor=Mock())  # type: ignore[arg-type]
+            assert _wait(runtime) == ActionState.SUCCESS
+            assert (out / "enter.txt").read_text().split(":")[2] == "/local/dst/tools"
+        finally:
+            runtime.cleanup()
+
+    def test_added_rule_for_the_same_location_wins(self, tmp_path: Path) -> None:
+        """Rule precedence changed: between rules for the same source path the
+        last one given applies, so a job attachment rule added after the
+        storage profile rules overrides them. A PATH env param shows it."""
+        out = tmp_path / "out"
+        out.mkdir()
+        runtime = RustSessionRuntime(
+            _config_with_rules(tmp_path / "sessions", [_rule("/mnt/src", "/local/storage")])
+        )
+        session: Any = _EnvOnlySession(runtime)
+        try:
+            runtime.extend_path_mapping_rules([_rule("/mnt/src", "/local/attachments")])
+            EnterEnvironmentAction(
+                id="sessionaction-1", job_env_id=_ENV_ID, details=_details(out, table=_TABLE)
+            ).start(session=session, executor=Mock())  # type: ignore[arg-type]
+            assert _wait(runtime) == ActionState.SUCCESS
+            assert (out / "enter.txt").read_text().split(":")[2:4] == [
+                "/local/attachments/tools",
+                "/mnt/src/tools",
+            ]
+        finally:
+            runtime.cleanup()
+
+    def test_refused_exit_reports_failed_not_the_previous_status(self, tmp_path: Path) -> None:
+        """An action the Rust session refuses before it starts ends FAILED with its
+        own message. Before c84c217 the previous action's SUCCESS was reported."""
+        out = tmp_path / "out"
+        out.mkdir()
+        updates: list[ActionState] = []
+        runtime = RustSessionRuntime(
+            _config_with_rules(
+                tmp_path / "sessions",
+                [_rule("/mnt/src", "/local/dst")],
+                callback=lambda session_id, status: updates.append(status.state),
+            )
+        )
+        session: Any = _EnvOnlySession(runtime)
+        try:
+            EnterEnvironmentAction(
+                id="sessionaction-1", job_env_id=_ENV_ID, details=_details(out, table=_TABLE)
+            ).start(session=session, executor=Mock())  # type: ignore[arg-type]
+            assert _wait(runtime) == ActionState.SUCCESS
+            updates.clear()
+
+            runtime.exit_environment(identifier="not-an-entered-environment")
+            assert _wait(runtime) == ActionState.FAILED
+            status = runtime.action_status
+            assert status is not None and status.fail_message
+            assert "not-an-entered-environment" in status.fail_message
+            assert updates[-1] == ActionState.FAILED
+            assert ActionState.SUCCESS not in updates
+        finally:
+            runtime.cleanup()
+
+    def test_create_job_only_keys_in_the_entity_body_are_ignored(self, tmp_path: Path) -> None:
+        """The Data Plane strips activation, exclusiveGroup and enableIf from the
+        per-Step entity body. If one arrives anyway, the worker's decode
+        ignores it and the Environment is entered as usual."""
+        out = tmp_path / "out"
+        out.mkdir()
+        details = _details(out, table=_TABLE)
+        assert isinstance(details.environment, dict)
+        details.environment["exclusiveGroup"] = "SoftwareProvider"
+        details.environment["activation"] = "BY_DEFAULT"
+
+        runtime = RustSessionRuntime(
+            _config_with_rules(tmp_path / "sessions", [_rule("/mnt/src", "/local/dst")])
+        )
+        session: Any = _EnvOnlySession(runtime)
+        try:
+            EnterEnvironmentAction(id="sessionaction-1", job_env_id=_ENV_ID, details=details).start(
+                session=session,
+                executor=Mock(),  # type: ignore[arg-type]
+            )
+            assert _wait(runtime) == ActionState.SUCCESS
+            assert (out / "enter.txt").read_text().startswith("red:2:/local/dst/tools")
         finally:
             runtime.cleanup()
